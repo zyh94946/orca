@@ -35,6 +35,10 @@ export type CookieClearStore = Pick<Cookies, 'get' | 'remove'> & {
   restoreClearIdentities(identities: readonly CookieClearIdentity[]): Promise<void>
 }
 
+// Why (STA-4061 sibling): 'set' stays out here too, so this clear can only ever remove — that is
+// what makes "cookies for other sites are kept" checkable at the type level, not just by reading.
+export type NonTransplantableCookieStore = Pick<Cookies, 'get' | 'remove'>
+
 // Why (STA-4061): 'set' stays out so the lossy partition-dropping reconstruction cannot return.
 export type CookieClearSession = {
   cookies: Pick<Cookies, 'get' | 'remove'>
@@ -123,6 +127,51 @@ function groupRemovableCookies(
     groups.set(key, group)
   }
   return groups
+}
+
+// Why: every entry is derived from a cookie that already matched the google.com family, so the
+// removal set can never widen past it.
+function nonTransplantableCookieEntries(
+  cookies: readonly Cookie[]
+): { cookie: Cookie; url: string }[] {
+  const removable: { cookie: Cookie; url: string }[] = []
+  for (const cookie of cookies) {
+    if (!isNonTransplantableCookieDomain(cookie.domain ?? '')) {
+      continue
+    }
+    const domain = normalizeCookieDomain(cookie.domain ?? '')
+    const url = domain ? cookieRemovalUrl(cookie, domain) : null
+    if (url) {
+      removable.push({ cookie, url })
+    }
+  }
+  return removable
+}
+
+export async function removeNonTransplantableCookies(
+  lockOwner: object,
+  store: NonTransplantableCookieStore
+): Promise<void> {
+  return withCookieClearLock(lockOwner, async () => {
+    const groups = [
+      ...groupRemovableCookies(nonTransplantableCookieEntries(await store.get({}))).values()
+    ]
+    const results = await mapSettledWithConcurrency(
+      groups,
+      COOKIE_CLEAR_CONCURRENCY,
+      async (group) => {
+        for (const { cookie, url } of group) {
+          await store.remove(url, cookie.name)
+        }
+      }
+    )
+    const failures = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    )
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'Could not clear all non-transplantable cookies')
+    }
+  })
 }
 
 async function restoreClearedCookies(

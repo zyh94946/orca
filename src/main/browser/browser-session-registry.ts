@@ -17,6 +17,7 @@ import {
   clearPendingBrowserCookieImport,
   setPendingBrowserCookieImport
 } from './browser-session-cookie-staging'
+import { removeNonTransplantableCookies } from './browser-cookie-import-clear'
 import {
   BROWSER_SESSION_META_FILE_NAME,
   loadBrowserSessionMeta,
@@ -273,6 +274,22 @@ class BrowserSessionRegistry {
 
       const sess = session.fromPartition(this.defaultPartition)
       await sess.clearStorageData({ storages: ['cookies'] })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  // Why: the same lock owner an import takes, so a clear cannot interleave with one. Only get/remove
+  // are needed, so this skips the CDP snapshot store an atomic import clear has to attach.
+  async clearProfileNonTransplantableCookies(profileId: string): Promise<boolean> {
+    const profile = this.profiles.get(profileId)
+    if (!profile) {
+      return false
+    }
+    try {
+      const targetSession = session.fromPartition(profile.partition)
+      await removeNonTransplantableCookies(targetSession, targetSession.cookies)
       return true
     } catch {
       return false

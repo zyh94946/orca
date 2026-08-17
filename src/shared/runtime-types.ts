@@ -1100,6 +1100,10 @@ export type BrowserProfileClearDefaultCookiesResult = {
   cleared: boolean
 }
 
+export type BrowserProfileClearGoogleCookiesResult = {
+  cleared: boolean
+}
+
 export type BrowserHoverResult = {
   hovered: string
 }

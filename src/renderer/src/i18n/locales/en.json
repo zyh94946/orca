@@ -6385,7 +6385,17 @@
           "a3f8c2d1e0b4": "Imported {{value0}} cookies from {{value1}} ({{value2}}) into {{value3}}.",
           "b4e9d3f2a1c5": "Imported {{value0}} cookies from {{value1}} into {{value2}}.",
           "c5a273a809": "From {{value0}}",
-          "b5c0479e21": "Unmodified user agent"
+          "b5c0479e21": "Unmodified user agent",
+          "clearProfileCookies": "Clear profile cookies",
+          "clearGoogleCookies": "Clear Google cookies",
+          "profileActions": "More actions for {{value0}}",
+          "clearProfileCookiesConfirmTitle": "Clear all cookies for this profile?",
+          "clearProfileCookiesConfirmDescription": "This deletes every cookie in the {{value0}} browser profile on {{value1}}, signing you out of every site in it, including Google. Orca also forgets which browser these cookies were imported from, so you would have to import them again.",
+          "profileCookiesClearFailed": "Failed to clear profile cookies.",
+          "clearGoogleCookiesConfirmTitle": "Clear Google cookies?",
+          "clearGoogleCookiesConfirmDescription": "This signs you out of Google in the {{value0}} browser profile on {{value1}}. Cookies for other sites are kept.",
+          "googleCookiesCleared": "Google cookies cleared.",
+          "googleCookiesClearFailed": "Failed to clear Google cookies."
         },
         "BrowserUseComputerUseNotice": {
           "15b5e680ba": "Open Computer Use",
@@ -11252,6 +11262,9 @@
         },
         "shortcutDefinitionCatalog": {
           "missionControlConflict": "Blocked by Mission Control. Remap here or change it in System Settings."
+        },
+        "BrowserSessionCookiesSection": {
+          "hostFallback": "this host"
         }
       },
       "right": {

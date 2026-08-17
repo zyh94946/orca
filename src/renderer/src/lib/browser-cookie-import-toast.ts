@@ -99,6 +99,9 @@ function formatCookieImportWarning(warning: CookieImportWarning): string {
   }
 }
 
+// Why: an import never writes Google cookies, so a Google cookie already in the profile is almost
+// always the user's own live session. The toast therefore only reports and points at the deliberate
+// settings surface; it never offers to delete a session whose provenance it cannot establish.
 function emitGoogleCookieImportWarning(
   summary: BrowserCookieImportSummary,
   executionHostLabel: string
@@ -109,7 +112,7 @@ function emitGoogleCookieImportWarning(
   toast.warning(
     translate(
       'auto.lib.browser.cookie.import.toast.googleCookiesSkipped',
-      'Google cookies were not imported. Open a browser in Orca on {{value0}} with this profile, then sign into Google.',
+      "Google cookies were not imported. Sign in to Google directly in Orca on {{value0}}. If sign-in does not work, clear this profile's Google cookies from Settings → Browser.",
       { value0: executionHostLabel }
     ),
     { duration: 12000 }

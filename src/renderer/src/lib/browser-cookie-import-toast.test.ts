@@ -82,12 +82,24 @@ describe('emitBrowserCookieImportToast', () => {
 
     expect(successToastMock).toHaveBeenCalledWith('Imported 2 cookies.')
     expect(warningToastMock).toHaveBeenCalledWith(
-      'Google cookies were not imported. Open a browser in Orca on Remote Mac with this profile, then sign into Google.',
+      "Google cookies were not imported. Sign in to Google directly in Orca on Remote Mac. If sign-in does not work, clear this profile's Google cookies from Settings → Browser.",
       { duration: 12000 }
     )
     expect(successToastMock.mock.invocationCallOrder[0]).toBeLessThan(
       warningToastMock.mock.invocationCallOrder[0]
     )
+  })
+
+  // Why (#14686): an import never writes Google cookies, so a Google cookie in the profile is the
+  // user's own live session. The toast must stay informational — no one-click delete of that session.
+  it('offers no action on the Google guidance toast', () => {
+    emitBrowserCookieImportToast(
+      { ...summary, googleCookiesSkipped: 1 },
+      'Imported 3 cookies.',
+      'Remote Mac'
+    )
+
+    expect(warningToastMock.mock.calls[0]?.[1]).toEqual({ duration: 12000 })
   })
 
   it('does not infer a Google warning from generic skipped cookies', () => {
@@ -204,7 +216,7 @@ describe('emitBrowserCookieImportToast', () => {
         'Imported 1 of 2 cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again.'
       ],
       [
-        'Google cookies were not imported. Open a browser in Orca on Remote Mac with this profile, then sign into Google.',
+        "Google cookies were not imported. Sign in to Google directly in Orca on Remote Mac. If sign-in does not work, clear this profile's Google cookies from Settings → Browser.",
         { duration: 12000 }
       ]
     ])

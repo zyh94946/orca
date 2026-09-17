@@ -15,7 +15,11 @@
   ],
   "main": "index.js",
   "types": "index.d.ts",
+  "scripts": {
+    "install": "node ./skip-implicit-gyp-rebuild.cjs"
+  },
   "dependencies": {
     "node-addon-api": "^8.5.0"
-  }
+  },
+  "gypfile": false
 }

@@ -31,6 +31,11 @@ describe('Electron runtime package contract', () => {
     // Why: allowBuilds stops pnpm running node-gyp at install time -- the root
     // Windows-only rebuild owns this addon so it is built against the right runtime ABI.
     expect(pnpmWorkspace.allowBuilds['@orca/windows-registry']).toBe(false)
+    const registryPkg = JSON.parse(readProject('native/windows-registry/package.json'))
+    // Why: binding.gyp still infers `node-gyp rebuild` for the workspace package
+    // even with allowBuilds false; an explicit no-op install replaces that hook.
+    expect(registryPkg.gypfile).toBe(false)
+    expect(registryPkg.scripts.install).toBe('node ./skip-implicit-gyp-rebuild.cjs')
     // Why assert the guard and the member separately: the list now carries more
     // than one addon, so pinning the whole literal only tested its formatting.
     expect(rebuildScript).toContain("rebuildPlatform === 'win32'")

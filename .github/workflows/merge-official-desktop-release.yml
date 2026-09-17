@@ -1,0 +1,46 @@
+name: Merge official desktop release
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Official desktop tag to merge (empty = GitHub Latest)
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: merge-official-desktop-release
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    # Why: this is a personal-fork tracker; never run on stablyai/orca.
+    if: github.event.repository.fork == true && github.repository_owner != 'stablyai'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout personal branch
+        uses: actions/checkout@v4
+        with:
+          ref: personal/spatial-pane-focus
+          fetch-depth: 0
+
+      - name: Merge official desktop release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_REPO: stablyai/orca
+          PERSONAL_BRANCH: personal/spatial-pane-focus
+        run: |
+          set -euo pipefail
+          chmod +x scripts/merge-official-desktop-release.sh
+          extra=()
+          if [[ -n "${{ inputs.tag }}" ]]; then
+            extra+=(--tag "${{ inputs.tag }}")
+          fi
+          ./scripts/merge-official-desktop-release.sh --push --open-issue "${extra[@]}"

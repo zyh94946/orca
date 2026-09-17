@@ -87,13 +87,16 @@ export function getDevInstanceIdentity(
   const devLabel = cleanEnvValue(env.ORCA_DEV_INSTANCE_LABEL) ?? formatLabel(branch, worktreeName)
   const dockTitle =
     cleanEnvValue(env.ORCA_DEV_DOCK_TITLE) ?? `${BASE_APP_NAME}: ${branch ?? devLabel ?? 'dev'}`
+  // Why: opt-in only. Repro launches also set ORCA_DEV_USER_DATA_PATH, so do
+  // not infer packaged Keychain identity from that path.
+  const sharePackagedSafeStorage = env.ORCA_DEV_SAFE_STORAGE_APP_NAME === BASE_APP_NAME
 
   return {
     name: dockTitle,
-    // Why: one stable Keychain key ('Orca Dev Safe Storage') for all dev
-    // branches; the per-branch identity still shows via `name` (window title,
-    // app menu, renderer label).
-    appName: `${BASE_APP_NAME} Dev`,
+    // Why: default is one stable Keychain key ('Orca Dev Safe Storage') for all
+    // dev branches. ORCA_DEV_SAFE_STORAGE_APP_NAME=Orca shares the packaged
+    // 'Orca Safe Storage' item when a launch script points at official userData.
+    appName: sharePackagedSafeStorage ? BASE_APP_NAME : `${BASE_APP_NAME} Dev`,
     isDev: true,
     devLabel,
     devBranch: branch,

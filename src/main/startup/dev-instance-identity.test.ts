@@ -25,6 +25,26 @@ describe('dev-instance-identity', () => {
     expect(a.appName).not.toBe('Orca')
   })
 
+  it('uses the packaged safeStorage app name when ORCA_DEV_SAFE_STORAGE_APP_NAME=Orca', () => {
+    const identity = getDevInstanceIdentity(true, {
+      ORCA_DEV_SAFE_STORAGE_APP_NAME: 'Orca',
+      ORCA_DEV_BRANCH: 'personal/spatial-pane-focus'
+    })
+    expect(identity.appName).toBe('Orca')
+    expect(identity.isDev).toBe(true)
+    expect(identity.name).toBe('Orca: personal/spatial-pane-focus')
+  })
+
+  it('keeps Orca Dev when ORCA_DEV_SAFE_STORAGE_APP_NAME is absent or not Orca', () => {
+    expect(getDevInstanceIdentity(true, {}).appName).toBe('Orca Dev')
+    expect(
+      getDevInstanceIdentity(true, { ORCA_DEV_SAFE_STORAGE_APP_NAME: 'Orca Dev' }).appName
+    ).toBe('Orca Dev')
+    expect(getDevInstanceIdentity(true, { ORCA_DEV_USER_DATA_PATH: '/tmp/repro' }).appName).toBe(
+      'Orca Dev'
+    )
+  })
+
   it('never renames a packaged build before ready', () => {
     // Packaged builds must keep deriving the safeStorage key from their own CFBundleName;
     // a pre-ready rename would repoint forks ("Orca ALab Edition") at Orca's key.

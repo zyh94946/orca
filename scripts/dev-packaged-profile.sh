@@ -38,6 +38,11 @@ if [[ -z "${ORCA_DEV_USER_DATA_PATH:-}" ]]; then
 fi
 export ORCA_DEV_USER_DATA_PATH
 export ORCA_DEV_SAFE_STORAGE_APP_NAME=Orca
+export ORCA_DEV_DOCK_TITLE="${ORCA_DEV_DOCK_TITLE:-0w0}"
+# Why: drop the dev-only React Grab overlay and the always-on CDP port; this
+# launch is a packaged-app stand-in, not a debug session.
+export VITE_ENABLE_REACT_GRAB=false
+export ORCA_DEV_DISABLE_REMOTE_DEBUGGING=1
 
 packaged_running=0
 if pgrep -f 'Orca.app/Contents/MacOS/Orca' >/dev/null 2>&1; then
@@ -130,6 +135,9 @@ if [[ "$try_mode" -eq 1 ]]; then
   echo "try: repo=$repo_root"
   echo "try: ORCA_DEV_USER_DATA_PATH=$ORCA_DEV_USER_DATA_PATH"
   echo "try: ORCA_DEV_SAFE_STORAGE_APP_NAME=$ORCA_DEV_SAFE_STORAGE_APP_NAME"
+  echo "try: ORCA_DEV_DOCK_TITLE=$ORCA_DEV_DOCK_TITLE"
+  echo "try: VITE_ENABLE_REACT_GRAB=$VITE_ENABLE_REACT_GRAB"
+  echo "try: ORCA_DEV_DISABLE_REMOTE_DEBUGGING=$ORCA_DEV_DISABLE_REMOTE_DEBUGGING"
   failed=0
   if [[ ! -d "$ORCA_DEV_USER_DATA_PATH" ]]; then
     echo "try: fail: packaged userData directory is missing" >&2

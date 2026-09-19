@@ -25,6 +25,15 @@ describe('dev-instance-identity', () => {
     expect(a.appName).not.toBe('Orca')
   })
 
+  it('uses ORCA_DEV_DOCK_TITLE as the window and Dock name', () => {
+    const identity = getDevInstanceIdentity(true, {
+      ORCA_DEV_DOCK_TITLE: '0w0',
+      ORCA_DEV_SAFE_STORAGE_APP_NAME: 'Orca'
+    })
+    expect(identity.name).toBe('0w0')
+    expect(identity.appName).toBe('Orca')
+  })
+
   it('uses the packaged safeStorage app name when ORCA_DEV_SAFE_STORAGE_APP_NAME=Orca', () => {
     const identity = getDevInstanceIdentity(true, {
       ORCA_DEV_SAFE_STORAGE_APP_NAME: 'Orca',

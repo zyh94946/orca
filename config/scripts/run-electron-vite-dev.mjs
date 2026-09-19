@@ -619,7 +619,8 @@ if (!isHelpOrVersion && process.env.ORCA_BACKGROUND_LAUNCH === '1') {
   console.error('[orca-dev] Background launch: window stays off screen; automate through CDP')
 }
 let forwardedExtras = []
-if (!userPassedPort && !isHelpOrVersion) {
+// Why: the packaged-profile launcher is a daily driver, not a debug session.
+if (process.env.ORCA_DEV_DISABLE_REMOTE_DEBUGGING !== '1' && !userPassedPort && !isHelpOrVersion) {
   const envPortRaw = process.env.REMOTE_DEBUGGING_PORT
   let port = null
   if (envPortRaw) {

@@ -113,6 +113,8 @@ if [[ -z "$(git config user.name || true)" ]]; then
   git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 fi
 
+conflict_issue_url=""
+
 conflict_issue() {
   local body
   body="$(
@@ -146,16 +148,65 @@ EOF
     --jq ".[] | select(.title | test(\"$tag\")) | .number" | head -n 1 || true)"
   if [[ -n "$existing" ]]; then
     echo "conflict issue already open: #$existing" >&2
+    if [[ -n "${GITHUB_REPOSITORY:-}" ]]; then
+      conflict_issue_url="https://github.com/${GITHUB_REPOSITORY}/issues/${existing}"
+    fi
     return 0
   fi
-  gh issue create --title "merge official desktop release $tag into $PERSONAL_BRANCH" \
-    --label "$ISSUE_LABEL" --body "$body"
+  conflict_issue_url="$(gh issue create --title "merge official desktop release $tag into $PERSONAL_BRANCH" \
+    --label "$ISSUE_LABEL" --body "$body")"
+}
+
+notify_bark() {
+  if [[ -z "${BARK_DEVICE_KEY:-}" ]]; then
+    echo "bark: BARK_DEVICE_KEY unset; skipping" >&2
+    return 0
+  fi
+  local title content url http_code
+  title="Orca 合并冲突 ${tag}"
+  content="${PERSONAL_BRANCH} 无法自动合并 ${tag}"
+  if [[ -n "$conflict_issue_url" ]]; then
+    content="${content} ${conflict_issue_url}"
+  fi
+  url="$(
+    BARK_DEVICE_KEY="$BARK_DEVICE_KEY" python3 - "$title" "$content" <<'PY'
+import os
+import sys
+import urllib.parse
+
+title, content = sys.argv[1], sys.argv[2]
+key = urllib.parse.quote(os.environ["BARK_DEVICE_KEY"], safe="")
+path = "/".join(
+    [
+        key,
+        urllib.parse.quote(title, safe=""),
+        urllib.parse.quote(content, safe=""),
+    ]
+)
+query = urllib.parse.urlencode(
+    {
+        "isArchive": "1",
+        "group": "Github",
+        "icon": "https://live4w.com/assets/github.png",
+    }
+)
+print(f"https://bark.0w0ai.com/{path}?{query}")
+PY
+  )"
+  http_code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 15 "$url" || true)"
+  if [[ "$http_code" =~ ^2 ]]; then
+    echo "bark: notified" >&2
+    return 0
+  fi
+  echo "bark: notify failed http=${http_code}" >&2
+  return 1
 }
 
 if ! git merge --no-ff "$tag" -m "merge official desktop release $tag"; then
   echo "merge of $tag failed with conflicts" >&2
   git merge --abort >/dev/null 2>&1 || true
-  conflict_issue
+  conflict_issue || echo "conflict issue failed" >&2
+  notify_bark || true
   exit 1
 fi
 

@@ -1,31 +1,45 @@
-import { useEffect, type ReactNode } from 'react'
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useEffect, useState, type ReactNode } from 'react'
+import {
+  ActivityIndicator,
+  Linking,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View
+} from 'react-native'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   OrcaMobileWebShellView,
   parseMobileWebShellLoadState
 } from '../../modules/orca-mobile-web-shell/src'
+import { HostRouteNoticeBanner } from '../components/HostRouteNoticeBanner'
 import { ProtocolBlockScreen } from '../components/ProtocolBlockScreen'
 import { colors, radii, spacing, typography } from '../theme/mobile-theme'
 import type { BridgeInitRoute } from './bridge/bridge-envelope'
+import type { BridgeClearableRouteParam } from './bridge/bridge-route-update'
 import type {
   MobileWebShellFailureCause,
-  MobileWebShellSessionState
+  MobileWebShellSessionState,
+  MobileWebShellUpdateNotice
 } from './mobile-web-shell-session-contract'
+import {
+  formatMobileWebShellDevFacts,
+  isDevelopmentBuild,
+  useMobileWebShellDroppedFrames
+} from './mobile-web-shell-dev-facts'
+import { cancelledShellNavigationTarget } from './cancelled-navigation-target'
+import { playPageHaptic } from './page-haptics'
 import { useMobileWebShellBridge } from './use-mobile-web-shell-bridge'
 import type { MobileWebShellRuntime } from './mobile-web-shell-runtime'
-import { serveNativeClipboardVerb } from '../platform/native-clipboard'
+import { useKeyboardOcclusion } from '../platform/keyboard-occlusion'
+import { softwareKeyboardWindowInset } from '../platform/software-keyboard-window-inset'
+import { useNativeDeviceVerbs } from '../platform/use-native-device-verbs'
 import { useShellStackPop } from './use-shell-stack-pop'
 import { useMobileWebShellSession } from './use-mobile-web-shell-session'
 import { usePageHostSnapshot } from './use-page-host-snapshot'
-
-// Same guard as the Troubleshoot developer row: `__DEV__` is undefined outside the React Native
-// runtime, and the facts below are for whoever is bringing the shell up, not for a user.
-const isDevelopmentBuild = typeof __DEV__ !== 'undefined' && __DEV__
-
-/** Enough of a build id to tell two generations apart in a screenshot, and not enough to be one. */
-const BUILD_ID_PREFIX_LENGTH = 12
+import { SHELL_OPENING_LABEL, ShellPageCover, ShellWaitingFrame } from './ShellWaitingFrame'
 
 function failureMessage(reason: MobileWebShellFailureCause): string {
   switch (reason) {
@@ -43,6 +57,15 @@ function failureMessage(reason: MobileWebShellFailureCause): string {
   }
 }
 
+/** Says what happened and what is on screen because of it, and claims nothing else: the shell does
+ *  not schedule a second attempt, so this must not promise one. */
+function updateNoticeMessage(notice: MobileWebShellUpdateNotice): string {
+  switch (notice) {
+    case 'update-failed':
+      return "Couldn't update the workspace from this host. Showing the last version that worked."
+  }
+}
+
 function Centered({ children }: { children: ReactNode }) {
   return <View style={styles.centered}>{children}</View>
 }
@@ -50,8 +73,7 @@ function Centered({ children }: { children: ReactNode }) {
 function Waiting({ label }: { label: string }) {
   return (
     <Centered>
-      <ActivityIndicator color={colors.textSecondary} accessibilityLabel={label} />
-      <Text style={styles.waitingLabel}>{label}</Text>
+      <ShellWaitingFrame label={label} />
     </Centered>
   )
 }
@@ -96,17 +118,25 @@ function Failed({
   )
 }
 
-/** Never the generation directory, never the whole build id, never the host id: this renders on a
- *  device someone may be screen-sharing, and none of those three tell them anything a prefix does
- *  not. */
-function DevFacts({ state }: { state: Extract<MobileWebShellSessionState, { kind: 'ready' }> }) {
-  if (!isDevelopmentBuild) {
+function DevFacts({
+  state,
+  droppedBinaryFrames
+}: {
+  state: Extract<MobileWebShellSessionState, { kind: 'ready' }>
+  droppedBinaryFrames: number
+}) {
+  if (!isDevelopmentBuild()) {
     return null
   }
   return (
     <View style={styles.devFacts} pointerEvents="none">
       <Text style={styles.devFactsText} testID="mobile-web-shell-dev-facts">
-        {`${state.buildId.slice(0, BUILD_ID_PREFIX_LENGTH)} · ${state.totalBytes} B · ${state.elapsedMs} ms`}
+        {formatMobileWebShellDevFacts({
+          buildId: state.buildId,
+          totalBytes: state.totalBytes,
+          elapsedMs: state.elapsedMs,
+          droppedBinaryFrames
+        })}
       </Text>
     </View>
   )
@@ -122,6 +152,12 @@ export type MobileWebShellScreenProps = {
    * the negotiation falls back to, and a shell with nothing behind it would paint a blank instead.
    */
   fallback: ReactNode
+  /**
+   * The page applied a one-shot route param and asks for it to be erased (ruling 34), naming what
+   * it applied. Only a caller that put one on the route ever hears this, and the comparison is
+   * that caller's: it holds the param, and a tap that moved on since leaves a newer value there.
+   */
+  onRouteParamClear?: (param: BridgeClearableRouteParam, value: string) => void
   runtime?: MobileWebShellRuntime
 }
 
@@ -136,28 +172,67 @@ export function MobileWebShellScreen({
   hostId,
   route,
   fallback,
+  onRouteParamClear,
   runtime
 }: MobileWebShellScreenProps) {
   const insets = useSafeAreaInsets()
+  // The page cannot see the IME for itself: edge-to-edge makes the manifest's `adjustResize` inert,
+  // so the window never shrinks and `visualViewport` inside the WebView reads full height with the
+  // keyboard up — the session route lays its live input row out under the keys. The shell owns the
+  // window, so it takes the strip off the view and the page lays out in what is left.
+  const keyboardHeight = useKeyboardOcclusion()
+  const keyboardInset = softwareKeyboardWindowInset({
+    keyboardHeight,
+    bottomInset: insets.bottom,
+    platform: Platform.OS
+  })
   const router = useRouter()
   const popShellStack = useShellStackPop()
+  const { droppedBinaryFrames, reportDroppedBinaryFrames } = useMobileWebShellDroppedFrames()
   const {
     state,
     pageRoutes,
+    pageRouteGrants,
     routeGrants,
+    updateNotice,
     retry,
     reportShellFailure,
+    reportDocumentStarted,
     reportDocumentLoaded,
-    reportPageReady
+    reportPageReady,
+    reportPagePainted,
+    pageReady,
+    pageFrame
   } = useMobileWebShellSession({ hostId, routePathname: route.pathname, runtime })
-  const { snapshot, unreadable, readStorage, refreshStorage, writeStorage } =
-    usePageHostSnapshot(hostId)
+  // Which mount the notice was dismissed on, not whether it was: a later refusal opens its own
+  // generation under a new session id, so it is not silenced by a tap on the one before it.
+  const [noticeDismissedFor, setNoticeDismissedFor] = useState<string | null>(null)
+  const { snapshot, unreadable, readStorage, refreshStorage, writeStorage } = usePageHostSnapshot(
+    hostId,
+    route.pathname
+  )
+  // Declared before the bridge so the handler it is handed already belongs to this session: the
+  // media verbs hold staged files, and a registry born after the host would outlive the page.
+  const serveNativeVerb = useNativeDeviceVerbs(state.kind === 'ready' ? state.sessionId : null)
+  // Straight to the system handler, and the one opener the shell has: the page's `externalLink`
+  // notify and a cancelled top-frame navigation both arrive here already filtered. The only failure
+  // left is a device with nothing registered for the scheme -- a `mailto:` on a phone with no mail
+  // account. Reported rather than swallowed, because nothing crosses back for either path, and not
+  // rethrown, because both run on a native frame handler.
+  const openUrlForPage = (url: string) => {
+    void Linking.openURL(url).catch((error: unknown) => {
+      console.warn('[web-shell] could not open a URL for the page', { url, error })
+    })
+  }
+
   const bridge = useMobileWebShellBridge({
     hostId,
     route,
     pageRoutes,
+    pageRouteGrants,
     routeGrants,
     session: state,
+    sessionEstablished: pageReady,
     snapshot,
     readStorage,
     onStorageWrite: writeStorage,
@@ -175,9 +250,15 @@ export function MobileWebShellScreen({
     // the map as they are made. This re-seats that map on the store afterwards, for the key whose
     // write never persisted, and it runs on every ask because a document that reloads inside this
     // mount asks again.
-    onPageReady: () => {
-      reportPageReady()
+    onPageReady: (reports) => {
+      reportPageReady(reports)
       void refreshStorage()
+    },
+    // The one thing that says the page is something to look at. The cover below stays up until it
+    // lands, for a page that declared it would send one.
+    onPagePainted: reportPagePainted,
+    onRouteParamClear: (param, value) => {
+      onRouteParamClear?.(param, value)
     },
     // `document-load-failed` because that is what happens: the document loads and the page refuses
     // the session, so no tree is ever built. The refetch it costs is wasted on a route this shell
@@ -192,21 +273,38 @@ export function MobileWebShellScreen({
       router.push(href)
     },
     // Answered on this device and never forwarded; the host holds it to the verb table first.
-    serveNativeVerb: serveNativeClipboardVerb,
+    serveNativeVerb,
     // Straight to the system handler. The envelope allowlisted the scheme before this ran, so the
     // only failure left is a device with nothing registered for it — a `mailto:` on a phone with no
     // mail account. Reported rather than swallowed: nothing crosses back for a notify, so this is
     // the one dead tap the verb does not rule out, and silence is what would hide it. Still not
     // rethrown, because this runs on the native frame handler.
-    onExternalLink: (url: string) => {
-      void Linking.openURL(url).catch((error: unknown) => {
-        console.warn('[web-shell] could not open a URL for the page', { url, error })
-      })
-    },
+    // The same opener a cancelled top-frame navigation takes, hoisted above this call so both
+    // paths are one function: its body is the `Linking.openURL` and the warning this handler
+    // carried inline.
+    onExternalLink: openUrlForPage,
+    // The app's own haptics, reached through one mapping rather than a second copy of the
+    // `Platform.OS` split. Nothing crosses back and nothing can fail: each function already
+    // swallows its own rejection on the device.
+    onHaptic: playPageHaptic,
     // The page's own Back goes nowhere: it holds the one history entry the entry wrote, so the only
     // stack to pop is this one.
-    onNavigateBack: popShellStack
+    onNavigateBack: popShellStack,
+    // A dropped screencast frame leaves no other trace on a device: the stream stays up by design
+    // and the diagnostic beside it prints once per host.
+    onBinaryFramesDropped: reportDroppedBinaryFrames
   })
+
+  // A route that moved under a screen that stayed mounted: the session switch keeps `paneKey` out
+  // of its key so a notification tap for another pane is a tab switch rather than a page reload,
+  // and this is how the page hears about it. Nothing is tracked here — which route the page has,
+  // and which one is still owed it, belong to the host, which outlives any one run of this effect.
+  // All this says is what the screen is on now: a route that did not move is dropped there, and a
+  // frame in flight when this re-runs is not disturbed by it.
+  const publishRoute = bridge.publishRoute
+  useEffect(() => {
+    publishRoute(route)
+  }, [publishRoute, route])
 
   // A profile read that rejected never becomes a host, so the session would otherwise sit in
   // `ready` behind an un-hidden view with nothing serving it and the page asking forever.
@@ -242,13 +340,25 @@ export function MobileWebShellScreen({
     return <Fetching state={state} />
   }
   if (state.kind !== 'ready') {
-    return <Waiting label={state.kind === 'activating' ? 'Opening workspace' : 'Checking host'} />
+    return <Waiting label={state.kind === 'activating' ? SHELL_OPENING_LABEL : 'Checking host'} />
   }
   return (
     <View
-      style={[styles.shellRoot, { paddingTop: insets.top, paddingBottom: insets.bottom }]}
+      style={[
+        styles.shellRoot,
+        { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, keyboardInset) }
+      ]}
       testID="mobile-web-shell-ready"
     >
+      {/* Above the page and dismissible, never in front of it: the workspace below this line
+          works, and the only thing that did not happen is the update to a newer one. */}
+      {updateNotice !== null && noticeDismissedFor !== state.sessionId && (
+        <HostRouteNoticeBanner
+          message={updateNoticeMessage(updateNotice)}
+          tone="failure"
+          onDismiss={() => setNoticeDismissedFor(state.sessionId)}
+        />
+      )}
       <OrcaMobileWebShellView
         key={state.sessionId}
         ref={bridge.viewRef}
@@ -257,6 +367,17 @@ export function MobileWebShellScreen({
         sessionId={state.sessionId}
         bridgeEnabled={bridge.bridgeEnabled}
         onBridgeMessage={bridge.onBridgeMessage}
+        onExternalNavigation={(event) => {
+          const target = cancelledShellNavigationTarget(event.nativeEvent.url)
+          if (target === null) {
+            // Cancelled and not openable. Nothing naming the shell's own document reaches here:
+            // the shell refuses that without offering it, whatever asked. What lands here and is
+            // dropped is a URL outside the three allowed schemes. Silent, as every cancelled
+            // navigation was before this event existed.
+            return
+          }
+          openUrlForPage(target)
+        }}
         onLoadState={(event) => {
           const parsed = parseMobileWebShellLoadState(event.nativeEvent)
           if (parsed?.state === 'failed') {
@@ -267,10 +388,17 @@ export function MobileWebShellScreen({
           // the page's own first frame says its code ran, so this is where the wait for it starts.
           if (parsed?.state === 'ready') {
             reportDocumentLoaded()
+            return
+          }
+          // The view is drawing the document it is leaving until the new one paints, so the cover
+          // goes back up here rather than on the `ready` that follows it.
+          if (parsed?.state === 'loading') {
+            reportDocumentStarted()
           }
         }}
       />
-      <DevFacts state={state} />
+      <ShellPageCover label={SHELL_OPENING_LABEL} visible={pageFrame === 'unpainted'} />
+      <DevFacts state={state} droppedBinaryFrames={droppedBinaryFrames} />
     </View>
   )
 }

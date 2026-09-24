@@ -165,13 +165,10 @@ export class OrcaRuntimeWithControllerKnowsPtyIsLive extends OrcaRuntimeWithReso
         async () => {
           this.assertLiveTerminalHandleTargetsPty(handle, pty.pty.ptyId)
           this.assertAgentPromptGeneration(pty.pty.ptyId, generation)
-          return await this.writeTerminalAgentPrompt(
-            handle,
-            pty.pty.ptyId,
-            generation,
-            payload,
-            options
-          )
+          return await this.writeTerminalAgentPrompt(handle, pty.pty.ptyId, generation, payload, {
+            ...options,
+            promptForSchedule: prompt
+          })
         }
       )
       const bytesWritten = Buffer.byteLength(payload, 'utf8') + delivery.submits
@@ -197,7 +194,10 @@ export class OrcaRuntimeWithControllerKnowsPtyIsLive extends OrcaRuntimeWithReso
     const delivery = await this.serializeAgentPromptSubmission(leaf.ptyId, generation, async () => {
       this.assertLiveTerminalHandleTargetsPty(handle, leaf.ptyId!)
       this.assertAgentPromptGeneration(leaf.ptyId!, generation)
-      return await this.writeTerminalAgentPrompt(handle, leaf.ptyId!, generation, payload, options)
+      return await this.writeTerminalAgentPrompt(handle, leaf.ptyId!, generation, payload, {
+        ...options,
+        promptForSchedule: prompt
+      })
     })
     const bytesWritten = Buffer.byteLength(payload, 'utf8') + delivery.submits
     return {

@@ -1,18 +1,19 @@
 import { readFile } from 'node:fs/promises'
 import { realpathSync } from 'node:fs'
 import { basename, extname, join, resolve } from 'node:path'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import * as esbuild from 'esbuild'
 import {
   MOBILE_WEB_BUNDLE_ENTRYPOINT,
   hashedAsset,
-  isDirectInvocation,
   readDesktopVersion,
   readProtocolWindow,
   sha256Hex,
   writeMobileWebBundleTree,
   contentTypeForExtension
-} from './build-mobile-web-bundle.mjs'
+} from './mobile-web-bundle-manifest.mjs'
+import { isDirectInvocation } from './script-entry-detection.mjs'
 import {
   ROUTE_SOURCE_LOADERS,
   assertRoutesCarryNoSynchronousExports,
@@ -26,7 +27,12 @@ const projectDir = fileURLToPath(new URL('../..', import.meta.url))
 const mobileDir = join(projectDir, 'mobile')
 const defaultAppDir = join(mobileDir, 'app')
 const entryPoint = join(mobileDir, 'web-entry', 'index.tsx')
-const defaultOutDir = join(projectDir, 'out', 'mobile-web-app')
+// The one definition of where the packaged bundle lives, taken from the guard that enforces it:
+// a second constant here could drift and leave electron-builder's beforePack looking at an empty
+// directory while the builder reported a tree it had written somewhere else.
+const { MOBILE_WEB_BUNDLE_DIR: defaultOutDir } = createRequire(import.meta.url)(
+  './verify-packaged-mobile-web-bundle.cjs'
+)
 
 /**
  * Every shim the app bundle needs, each one a documented Metro/RN-Web gap. `appliesTo` reads the
@@ -53,6 +59,21 @@ export const MOBILE_WEB_APP_SHIMS = [
     // RN and Expo modules read process.env at module scope, before any of our code runs.
     name: 'process-banner',
     appliesTo: (options) => options.banner?.js?.includes('globalThis.process ??=') === true
+  },
+  {
+    // Zod probes for a usable JIT with `new Function('')`, which the shell's CSP reports even
+    // though Zod catches the throw and runs interpreted. Turned off before any module, because a
+    // schema constructed at module scope reaches the probe before our own code can run.
+    name: 'zod-jitless-banner',
+    appliesTo: (options) => options.banner?.js?.includes('__zod_globalConfig') === true
+  },
+  {
+    // Four modules under src/shared resolve `zod` upward to the root's copy, so the page bundled
+    // two Zods and built salvage combinators with one instance to nest inside schemas built by the
+    // other. mobile/tsconfig.json already maps `zod` to mobile's for the whole mobile program,
+    // those shared modules included; this is the bundler catching up to that contract.
+    name: 'one-zod',
+    appliesTo: (options) => options.alias?.zod === MOBILE_ZOD_PACKAGE
   },
   {
     // lucide-react-native@1.14.0's barrel re-exports LucideProvider from a context.mjs that does
@@ -111,6 +132,45 @@ const PAGE_ASYNC_STORAGE_MODULE = join(
   'page-async-storage.ts'
 )
 
+/**
+ * The one Zod the page runs.
+ *
+ * `nodePaths` is a fallback, consulted only where normal resolution fails, so it never reached
+ * `src/shared/zod-salvage.ts`: that file sits above `mobile/`, its bare `zod` resolves upward to
+ * the root's 4.5.4, and the 58 mobile modules beside it resolved to mobile's 4.4.3. Both shipped.
+ *
+ * Mobile's copy and not the root's, because the mobile app already says so: `mobile/tsconfig.json`
+ * maps `zod` to `./node_modules/zod`, and a shared module joins that program as an imported file,
+ * so tsc holds `zod-salvage.ts` to 4.4.3 today. The composition says the same thing from the other
+ * side — `salvagingArray` and friends are leaves nested inside `z.object(...)` built by mobile's
+ * Zod, so the leaves belong to the container's instance.
+ *
+ * The package directory rather than a file: nothing imports a `zod/...` subpath, and esbuild reads
+ * the `module` field here, which is the same ESM entry the package's `import` condition names.
+ */
+const MOBILE_ZOD_PACKAGE = join(mobileDir, 'node_modules', 'zod')
+
+/**
+ * Zod's compiled path, off before any module runs.
+ *
+ * Zod decides whether it may compile by constructing `new Function('')` and reading the throw as
+ * "no JIT here". Under the shell's `script-src 'self'` that throw is exactly what happens, Zod
+ * catches it and takes the interpreted path — but the browser files a `securitypolicyviolation`
+ * report first, and it does so on every page load. Zod's own source gates the probe on `jitless`
+ * for this case, so nothing here is a workaround.
+ *
+ * In the banner rather than a module that calls `z.config`, because a module cannot win the race.
+ * `$ZodObject` reads `allowsEval` when a schema is *constructed*, not parsed, so the first
+ * module-scope `z.object(...)` in the bundle fires the probe — and esbuild evaluates the chunk
+ * holding zod and its callers before the chunk holding any module of ours that imports zod. An
+ * entry import placed first was measured losing that race; the banner runs before every module.
+ *
+ * `globalConfig` is `globalThis.__zod_globalConfig`, which zod adopts with `??=` rather than
+ * replacing, so setting the flag on it here is what zod itself reads.
+ */
+const ZOD_JITLESS_BANNER =
+  'globalThis.__zod_globalConfig ??= {}; globalThis.__zod_globalConfig.jitless = true;'
+
 const ROUTE_MANIFEST_PLUGIN_NAME = 'orca-route-manifest'
 const LUCIDE_PLUGIN_NAME = 'orca-lucide-barrel-provider'
 
@@ -132,7 +192,11 @@ function routeManifestPlugin(manifestSource) {
   }
 }
 
-const lucideBarrelPlugin = {
+/**
+ * Exported so a component-level render check builds the icons the same way the page does, rather
+ * than carrying a second copy of this shim that could drift from it.
+ */
+export const lucideBarrelPlugin = {
   name: LUCIDE_PLUGIN_NAME,
   setup(build) {
     build.onLoad({ filter: /lucide-react-native[\\/].*[\\/]context\.mjs$/ }, async (args) => ({
@@ -175,10 +239,13 @@ export function mobileWebAppBuildOptions(routes) {
     logLevel: 'silent',
     jsx: 'automatic',
     // One React: resolve everything from mobile/node_modules, which is where the entry lives.
+    // A fallback only, so it settles nothing for a module that resolves on its own — see
+    // MOBILE_ZOD_PACKAGE, which is a repo-root import this never reached.
     nodePaths: [join(mobileDir, 'node_modules')],
     alias: {
       'react-native': 'react-native-web',
-      '@react-native-async-storage/async-storage': PAGE_ASYNC_STORAGE_MODULE
+      '@react-native-async-storage/async-storage': PAGE_ASYNC_STORAGE_MODULE,
+      zod: MOBILE_ZOD_PACKAGE
     },
     plugins: [routeManifestPlugin(renderMobileWebAppRouteManifest(routes)), lucideBarrelPlugin],
     resolveExtensions: [
@@ -210,7 +277,7 @@ export function mobileWebAppBuildOptions(routes) {
     // script would resolve against the route instead.
     publicPath: '/assets',
     banner: {
-      js: "globalThis.process ??= { env: { NODE_ENV: 'production', EXPO_OS: 'web' }, platform: 'web', version: '', nextTick: (fn) => setTimeout(fn, 0) };"
+      js: `globalThis.process ??= { env: { NODE_ENV: 'production', EXPO_OS: 'web' }, platform: 'web', version: '', nextTick: (fn) => setTimeout(fn, 0) };${ZOD_JITLESS_BANNER}`
     },
     define: {
       global: 'globalThis',
@@ -341,26 +408,42 @@ const isScriptOutput = (path) => path.endsWith('.js')
 /**
  * Every source module one page route reaches, as the builder itself resolves them.
  *
- * One definition of "what a page contains", read from `metafile.inputs` — the modules the route
- * pulls in — rather than from `entryStaticClosure`, which walks emitted chunks and answers what a
- * browser must download. Both entry points are needed: `app/h/_layout.tsx` wraps every route under
- * it, and its imports are part of the page as surely as the route module's.
+ * Both entry points are needed: `app/h/_layout.tsx` wraps every route under it, and its imports are
+ * part of the page as surely as the route module's.
+ */
+export async function mobileWebAppRouteClosure(routeModule) {
+  return await mobileWebAppModuleClosure(['app/h/_layout', routeModule])
+}
+
+/**
+ * The same closure for any entry modules, which a route plus the layout is one case of.
  *
- * `splitting: false` and a per-name output are required for a two-entry build; with the defaults
+ * One definition of "what a page contains", read from `metafile.inputs` — the modules the entries
+ * pull in — rather than from `entryStaticClosure`, which walks emitted chunks and answers what a
+ * browser must download.
+ *
+ * A component a route mounts rather than one the router registers — `MobileBrowserPane` is the
+ * first with a pin of its own — has a closure to certify and no route to name it by. Pass it alone
+ * to read what it reaches on its own, or beside `app/h/_layout` to read what it adds to a page.
+ *
+ * `splitting: false` and a per-name output are required for a multi-entry build; with the defaults
  * esbuild fails on two outputs claiming `dist/entry.js`.
  *
  * Note for anyone comparing this with a parity pin: `c1-page-closure.ts`, and the closures C2.6,
  * C5.2 and C3.2 generate, derive theirs by the C1.6 method inside the mobile suite. The two are
  * not the same computation, and a divergence between them is a finding rather than noise.
  */
-export async function mobileWebAppRouteClosure(routeModule) {
+export async function mobileWebAppModuleClosure(entryModules, { absWorkingDir } = {}) {
   const base = mobileWebAppBuildOptions(MOBILE_WEB_PAGE_ROUTES)
   const result = await esbuild.build({
     ...base,
+    // A census that plants a module to show the walk would report it needs a tree of its own; the
+    // real ones never pass this and keep measuring `mobile/`.
+    ...(absWorkingDir ? { absWorkingDir } : {}),
     // Extensionless, so `resolveExtensions` picks the same file the bundle ships: a route with a
     // `.web.tsx` sibling resolves to that one, and naming the `.tsx` path explicitly would measure
     // the native switch no browser ever loads.
-    entryPoints: ['app/h/_layout', routeModule.replace(/\.tsx?$/, '')],
+    entryPoints: entryModules.map((entry) => entry.replace(/\.tsx?$/, '')),
     splitting: false,
     entryNames: '[name]',
     plugins: base.plugins.filter((plugin) => plugin.name !== ROUTE_MANIFEST_PLUGIN_NAME),
@@ -429,7 +512,18 @@ export function resolveMobileWebPageRoutes(routeKeys, declared = MOBILE_WEB_PAGE
       )
     }
   }
-  return declared.map((route) => ({ pathname: route.pathname, grants: [...route.grants] }))
+  // Mapped member by member rather than spread: the manifest is `.strict()`, so a field this
+  // declaration grows and this map does not name is dropped in silence -- which is how
+  // `optionalGrants` would have reached a phone as a route that declared nothing optional.
+  // `optionalGrants` is omitted when the route declares none, because absent and empty are the same
+  // answer to a shell and a key written empty would be a manifest field with no reader.
+  return declared.map((route) => ({
+    pathname: route.pathname,
+    grants: [...route.grants],
+    ...(route.optionalGrants === undefined || route.optionalGrants.length === 0
+      ? {}
+      : { optionalGrants: [...route.optionalGrants] })
+  }))
 }
 
 /**
@@ -466,6 +560,10 @@ export async function buildMobileWebAppBundle({
   const html =
     '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8" />\n' +
     '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />\n' +
+    // Undeclared, a browser asks the origin for /favicon.ico itself and the shell's asset server
+    // answers 403, the path being in no manifest. Empty rather than an asset: a WebView document
+    // has no tab for an icon, and the bundle's images are route assets named by their own bytes.
+    '<link rel="icon" href="data:," />\n' +
     `<title>Orca</title>\n${MOBILE_WEB_APP_ROOT_RESET}\n</head>\n<body>\n<div id="root"></div>\n` +
     `<script type="module" src="/${scriptAsset.path}"></script>\n</body>\n</html>\n`
   const indexBytes = Buffer.from(html, 'utf8')

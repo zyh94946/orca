@@ -13,8 +13,6 @@ on:
 permissions:
   contents: write
   issues: write
-  # Why: desktop release tags edit .github/workflows. GITHUB_TOKEN cannot push those without this scope.
-  workflows: write
 
 concurrency:
   group: merge-official-desktop-release

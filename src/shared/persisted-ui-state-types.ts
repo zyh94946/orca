@@ -120,6 +120,8 @@ export type PersistedUIState = {
   _grokStatusBarDefaultAdded?: boolean
   /** One-shot migration flag for adding the default-on Cursor status item. */
   _cursorStatusBarDefaultAdded?: boolean
+  /** One-shot migration flag for adding the default-on ZCode status item. */
+  _zcodeStatusBarDefaultAdded?: boolean
   statusBarItems: StatusBarItem[]
   statusBarVisible: boolean
   /** Why: this is client-side presentation, not a provider/account or execution-host setting. */
@@ -166,6 +168,8 @@ export type PersistedUIState = {
   usagePercentageDisplayChangeNoticeDismissed?: boolean
   /** User-hidden empty-state usage CTA; permanently hides the "Connect AI accounts" prompt even if providers are later disconnected. */
   usageEmptyStateDismissed?: boolean
+  /** One-shot toast announcing per-terminal Codex servers; set when shown, so absent means not yet seen. */
+  codexTerminalServerIsolationNoticeSeen?: boolean
   /** URL for new browser tabs; null = blank tab. */
   browserDefaultUrl?: string | null
   browserDefaultSearchEngine?: 'google' | 'duckduckgo' | 'bing' | 'kagi' | null

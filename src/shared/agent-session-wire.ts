@@ -187,6 +187,9 @@ export type AgentSessionStatusSummary = {
   /** With `hostExecutionOwned`: whether that child has proven its start. `starting` is a
    *  published session whose provider has not yet answered startup; absent on older hosts. */
   hostExecutionPhase?: 'starting' | 'ready'
+  /** The current provider child, distinct from the conversation and from replacement children.
+   *  Absent on older hosts and whenever this host has no live child. */
+  hostExecutionChild?: { generation: string | null; fence: number }
   latestPrompt: string
   /** Provider model in force for the next turn; absent until the host has read the options. */
   model?: string
@@ -223,7 +226,8 @@ export type AgentSessionStatusEvent =
 // ─── Turn completion feed ───────────────────────────────────────────────────
 
 /**
- * One root turn reaching a terminal outcome, derived by the EXECUTION HOST at journal commit.
+ * The session's latest request reaching a terminal outcome — a root turn, or a send the agent or
+ * its start refused — derived by the EXECUTION HOST at journal commit.
  *
  * This is the EDGE, with turn identity; `AgentSessionStatusSummary.turnOutcome` is the STATE.
  * The summary carries the verdict only while the session is idle, as a fact about the main agent's
@@ -239,11 +243,14 @@ export type AgentSessionTurnCompletion = {
   /** Host-and-workspace scope; a bare provider turn id is not globally unique. */
   scope: AgentSessionExecutionLocation
   sessionId: string
-  /** Root turn identity from the journal turn record; no second identity is minted. */
+  /** The request's identity: the root turn's id, or for a send refused before any turn, that
+   *  send's journal item key. Neither is minted here. */
   turnId: string
   outcome: AgentJournalTurnOutcome
   /** Execution host's clock at journal commit. */
   completedAt: number
+  /** The request settled while a prompt waits on the user. Absent otherwise, and from older hosts. */
+  awaitingUser?: true
 }
 
 /**
@@ -295,7 +302,7 @@ export type AgentSessionAttachResult = {
   sessionId: string
   fence: number
   page: AgentSessionHistoryPage
-  /** Submissions the crash boundary settled as `unknown` while attaching. */
+  /** Submissions a crash boundary left `unknown` that provider history could not decide. */
   unconfirmedClientMessageIds: string[]
   /** The host-owned id of the tab showing this chat, when it has one. Absent from older hosts. */
   tabId?: string
@@ -307,8 +314,8 @@ export type AgentSessionSendResult = {
 }
 
 export type AgentSessionCancelResult = {
-  /** The turn the client named, echoed so a late reply can be matched. */
-  turnId: string
+  /** The turn the client named, echoed so a late reply can be matched; absent when it named none. */
+  turnId?: string
   cancelled: boolean
 }
 

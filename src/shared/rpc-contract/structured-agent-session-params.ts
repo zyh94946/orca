@@ -2,7 +2,10 @@ import { z } from 'zod'
 import { isAgentSessionSurfaceTabId } from '../agent-session-surface-tab-id'
 import { isAgentSessionId } from '../agent-session-record'
 import { normalizeExecutionHostId } from '../execution-host'
-import { AGENT_SESSION_QUESTION_ANSWER_MAX_BYTES } from '../agent-session-question-answer'
+import {
+  AGENT_SESSION_QUESTION_ANSWER_MAX_BYTES,
+  AGENT_SESSION_RESPONSE_OPTION_ID_MAX_LENGTH
+} from '../agent-session-question-answer'
 import {
   AGENT_SESSION_ID_MAX_LENGTH,
   AGENT_SESSION_HISTORY_DIRECTIONS,
@@ -13,7 +16,7 @@ import {
 export const MAX_ID_LENGTH = AGENT_SESSION_ID_MAX_LENGTH
 
 // Four Claude questions with all four generated choices occupy 610 chars when fully percent-encoded.
-export const MAX_RESPONSE_OPTION_ID_LENGTH = 1024
+export const MAX_RESPONSE_OPTION_ID_LENGTH = AGENT_SESSION_RESPONSE_OPTION_ID_MAX_LENGTH
 
 export const MAX_PROMPT_BYTES = 256 * 1024
 
@@ -182,7 +185,8 @@ export const SendParams = z
 export const CancelParams = z
   .object({
     envelope: MutationEnvelope,
-    turnId: Identifier('Invalid turn id'),
+    // Absent: stop whatever the conversation has in flight. Present: only if that turn is current.
+    turnId: Identifier('Invalid turn id').optional(),
     scope: z.literal('background-tasks').optional(),
     taskId: Identifier('Invalid task id').optional(),
     prompt: z
@@ -200,6 +204,9 @@ export const CancelParams = z
     }
     if (value.prompt !== undefined && value.scope === 'background-tasks') {
       ctx.addIssue({ code: 'custom', message: 'A prompt cannot use background-task scope' })
+    }
+    if (value.turnId === undefined && (value.prompt !== undefined || value.scope !== undefined)) {
+      ctx.addIssue({ code: 'custom', message: 'A prompt or background-task cancel names its turn' })
     }
   })
 

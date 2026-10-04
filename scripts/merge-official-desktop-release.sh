@@ -2,6 +2,9 @@
 # Merge the latest official desktop Orca release tag into this branch.
 # Default target is personal/spatial-pane-focus. Does not force-push.
 # Pass --dry-run to print the tag without merging.
+# Consecutive desktop tags are siblings, so a plain merge conflicts every release.
+# Overlapping hunks take the new tag. This branch's workflow files stay, because
+# GITHUB_TOKEN cannot push .github/workflows changes.
 set -euo pipefail
 
 UPSTREAM_REPO="${UPSTREAM_REPO:-stablyai/orca}"
@@ -202,14 +205,46 @@ PY
   return 1
 }
 
-if ! git merge --no-ff "$tag" -m "merge official desktop release $tag"; then
+# Why: GITHUB_TOKEN rejects a push that creates or updates .github/workflows.
+keep_our_workflows() {
+  local added path
+  added="$(git diff --cached --name-only --diff-filter=A -- .github/workflows || true)"
+  if [[ -n "$added" ]]; then
+    while IFS= read -r path; do
+      [[ -z "$path" ]] && continue
+      git rm -f --ignore-unmatch -- "$path" >/dev/null
+    done <<< "$added"
+  fi
+  git checkout HEAD -- .github/workflows
+}
+
+if ! git merge --no-ff --no-commit -X theirs "$tag"; then
   echo "merge of $tag failed with conflicts" >&2
+  git diff --name-only --diff-filter=U >&2 || true
   git merge --abort >/dev/null 2>&1 || true
   conflict_issue || echo "conflict issue failed" >&2
   notify_bark || true
   exit 1
 fi
 
+if [[ -n "$(git diff --name-only --diff-filter=U)" ]]; then
+  echo "merge of $tag left unresolved conflicts" >&2
+  git diff --name-only --diff-filter=U >&2 || true
+  git merge --abort >/dev/null 2>&1 || true
+  conflict_issue || echo "conflict issue failed" >&2
+  notify_bark || true
+  exit 1
+fi
+
+keep_our_workflows
+
+if git diff --cached --quiet; then
+  echo "merge of $tag produced no product changes" >&2
+  git merge --abort >/dev/null 2>&1 || true
+  exit 0
+fi
+
+git commit -m "merge official desktop release $tag"
 echo "merged $tag"
 
 if [[ "$do_push" -eq 1 ]]; then

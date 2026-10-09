@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { translate } from '@/i18n/i18n'
 import { canShowRightSidebarForView } from '@/lib/right-sidebar-visibility'
-import { isEditableTarget } from '../lib/editable-target'
+import { fileSearchClaimsTextKey } from '../lib/file-search-shortcut-policy'
 import { getSelectedTextForFileSearch } from '../lib/file-search-selection'
 import { registerAppCommandDispatcher } from '@/lib/app-command-dispatch'
 import { executePluginCommand } from '@/lib/plugin-command-execution'
@@ -105,7 +105,7 @@ export function useGlobalKeybindings(args: {
       } = state
 
       // Child handlers (e.g. terminal search) share this window capture phase and fire first; bail if they already preventDefault'd so both don't act.
-      if (input.defaultPrevented) {
+      if (input.defaultPrevented || input.isComposing || input.key === 'Process') {
         return
       }
       // The Settings shortcut recorder captures existing shortcuts, so global handlers must not fire while its button has focus.
@@ -188,7 +188,7 @@ export function useGlobalKeybindings(args: {
       }
 
       // Skip editable surfaces so TipTap's Cmd+B bold works; this renderer-side fallback covers the blur→press IPC race (docs/markdown-cmd-b-bold-design.md).
-      if (isEditableTarget(input.target)) {
+      if (fileSearchClaimsTextKey(input)) {
         return
       }
 
@@ -239,9 +239,13 @@ export function useGlobalKeybindings(args: {
       if (matchShortcut('workspace.delete') && handlers.get('workspace.delete')?.()) {
         return
       }
-      // Why: terminal owns Mod+Alt+Arrow. After isActive remount the global
-      // capture listener can be first, so skip history here; the terminal
-      // handler moves to a neighbor or dispatches history at a layout edge.
+      if (
+        matchShortcut('sidebar.childWorkspaces.toggle') &&
+        handlers.get('sidebar.childWorkspaces.toggle')?.()
+      ) {
+        return
+      }
+      // Why: terminal owns Mod+Alt+Arrow, so history must not run from this global listener.
       if (
         dispatchGlobalPluginAliasActions({
           context,
@@ -281,6 +285,8 @@ export function useGlobalKeybindings(args: {
       if (detected) {
         // Synthetic input: no key/modifier flags, so only DoubleTap bindings match.
         dispatchShortcutInput({
+          isComposing: e.isComposing,
+          altGraph: e.getModifierState('AltGraph'),
           doubleTapModifier: detected.modifier,
           target: e.target,
           defaultPrevented: e.defaultPrevented,
@@ -289,6 +295,8 @@ export function useGlobalKeybindings(args: {
         return
       }
       dispatchShortcutInput({
+        isComposing: e.isComposing,
+        altGraph: e.getModifierState('AltGraph'),
         key: e.key,
         code: e.code,
         altKey: e.altKey,

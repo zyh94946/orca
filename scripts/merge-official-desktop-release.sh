@@ -207,18 +207,20 @@ PY
 
 # Why: GITHUB_TOKEN rejects a push that creates or updates .github/workflows.
 keep_our_workflows() {
-  local added path
-  added="$(git diff --cached --name-only --diff-filter=A -- .github/workflows || true)"
-  if [[ -n "$added" ]]; then
-    while IFS= read -r path; do
-      [[ -z "$path" ]] && continue
-      git rm -f --ignore-unmatch -- "$path" >/dev/null
-    done <<< "$added"
-  fi
+  git rm -r -f --ignore-unmatch -- .github/workflows >/dev/null
   git checkout HEAD -- .github/workflows
 }
 
-if ! git merge --no-ff --no-commit -X theirs "$tag"; then
+merge_status=0
+git merge --no-ff --no-commit -X theirs "$tag" || merge_status=$?
+
+# Why: workflow modify/delete conflicts must be resolved before checking product conflicts.
+if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+  keep_our_workflows
+fi
+
+if { [[ "$merge_status" -ne 0 ]] && ! git rev-parse -q --verify MERGE_HEAD >/dev/null; } \
+  || [[ -n "$(git diff --name-only --diff-filter=U)" ]]; then
   echo "merge of $tag failed with conflicts" >&2
   git diff --name-only --diff-filter=U >&2 || true
   git merge --abort >/dev/null 2>&1 || true
@@ -226,17 +228,6 @@ if ! git merge --no-ff --no-commit -X theirs "$tag"; then
   notify_bark || true
   exit 1
 fi
-
-if [[ -n "$(git diff --name-only --diff-filter=U)" ]]; then
-  echo "merge of $tag left unresolved conflicts" >&2
-  git diff --name-only --diff-filter=U >&2 || true
-  git merge --abort >/dev/null 2>&1 || true
-  conflict_issue || echo "conflict issue failed" >&2
-  notify_bark || true
-  exit 1
-fi
-
-keep_our_workflows
 
 if git diff --cached --quiet; then
   echo "merge of $tag produced no product changes" >&2

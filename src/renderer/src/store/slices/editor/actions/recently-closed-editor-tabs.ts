@@ -18,6 +18,8 @@ import {
 } from '../tabs/untitled-file-cleanup'
 import { unifiedTabsKeepWorktreeSelected } from './unified-tabs-keep-worktree-selected'
 import { isEditorTabContentType } from '../tabs/editor-tab-content-type'
+import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../../../shared/layout-owner-switch'
+import { recordReopenedEditorTabPositionInLayoutOwner } from '../tabs/editor-tab-layout-owner'
 
 export function createRecentlyClosedEditorTabs(
   set: EditorSet,
@@ -42,6 +44,15 @@ export function createRecentlyClosedEditorTabs(
         reopenId
       })
       restoreRecentlyClosedTabPosition(get, worktreeId, restoredFileId, position)
+      // Switch point: main moves the reopened tab to where the window restored it.
+      if (ORCA_LAYOUT_OWNER_IS_MAIN && position) {
+        recordReopenedEditorTabPositionInLayoutOwner(
+          get(),
+          worktreeId,
+          restoredFileId,
+          position.groupId
+        )
+      }
       return true
     },
 
@@ -166,11 +177,7 @@ export function createRecentlyClosedEditorTabs(
         const positionIndex = createRecentlyClosedTabPositionIndex(s, activeWorktreeId)
         for (const f of [...closingFiles].toReversed()) {
           // Why: skip untitled non-dirty files (deleted from disk after close), ephemeral preview tabs, and chat visuals (one click away in their chat) so the reopen stack has no vanished/junk paths.
-          if (
-            untitledIdsToDelete.has(f.id) ||
-            f.mode === 'markdown-preview' ||
-            f.mode === 'chat-visual'
-          ) {
+          if (untitledIdsToDelete.has(f.id) || f.mode === 'markdown-preview') {
             continue
           }
           const { id: _id, isDirty: _dirty, mirroredFromRuntimeSession: _mirrored, ...snap } = f

@@ -5,7 +5,7 @@ import type { Worktree } from '../../../../shared/worktree/types'
 import {
   getCyclicProjectedWorktreeLineageIds,
   getLineageRenderInfo
-} from './worktree-lineage-projection'
+} from '../../../../shared/sidebar-list/worktree-lineage-projection'
 import { getWorkspaceStatus } from './workspace-status'
 import { getEligibleWorktreeParents } from './worktree-parent-candidates'
 import {
@@ -56,6 +56,7 @@ export function useWorktreeContextMenuModel({
   const defaultSelectedWorktrees = useMemo(() => [worktree], [worktree])
   const effectiveSelectedWorktrees = selectedWorktrees ?? defaultSelectedWorktrees
   const updateWorktreeMeta = useAppStore((s) => s.updateWorktreeMeta)
+  const setWorkspaceUnreadByUser = useAppStore((s) => s.setWorkspaceUnreadByUser)
   const setWorktreesPinnedAndReveal = useAppStore((s) => s.setWorktreesPinnedAndReveal)
   const workspaceStatuses = useAppStore((s) => s.workspaceStatuses)
   const openModal = useAppStore((s) => s.openModal)
@@ -296,6 +297,7 @@ export function useWorktreeContextMenuModel({
     scopeRef,
     setCreateGroupDialogOpen,
     setMenuOpenState,
+    setWorkspaceUnreadByUser,
     setWorktreesPinnedAndReveal,
     sleepableWorktrees,
     subtreeSleepableWorktrees,

@@ -7,7 +7,7 @@ import path from 'node:path'
 import { isTerminalLeafId } from '../../../../shared/stable-pane-id'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ManagedPane, PaneManager } from '@/lib/pane-manager/pane-manager'
-import type { PtyTransport } from './pty-transport'
+import type { PtyTransport } from './pty-transport-types'
 import TerminalPaneHeaderOverlay from './TerminalPaneHeaderOverlay'
 import {
   encodeWorkspaceFilePaths,

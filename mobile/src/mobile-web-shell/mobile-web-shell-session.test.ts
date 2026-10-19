@@ -136,20 +136,21 @@ describe('the connected flow', () => {
     expect(step.effects).toEqual([])
   })
 
-  it('opens the cached generation without paging when the build ids match', () => {
-    const step = run(afterCacheRead(CACHED).session, { type: 'manifest-read', manifest: MANIFEST })
+  it('opens a same-build hit without paging, under the fresh grants', () => {
+    // Stored routes this shell cannot serve: only the fresh manifest's grants make it a page.
+    const stale = { ...CACHED, routes: [{ pathname: '/h/[hostId]', grants: ['teleport'] }] }
+    const step = run(afterCacheRead(stale).session, { type: 'manifest-read', manifest: MANIFEST })
     expect(step.session.state).toEqual({ kind: 'activating', source: 'cache' })
-    // And it writes the manifest it just matched: the routes are the only thing a same-build read
-    // can have changed, and nothing else on this path touches the disk.
+    // Only the open: a write beside the generation would race the native view reading it.
     expect(step.effects).toEqual([
       {
         kind: 'open-generation',
         directory: CACHED.directory,
         buildId: CACHED.buildId,
         totalBytes: CACHED.totalBytes
-      },
-      { kind: 'persist-manifest', manifest: MANIFEST.wire }
+      }
     ])
+    expect(step.session.routeGrants).toEqual(['navigate'])
   })
 
   it('downloads when the cached build id is a different one', () => {
@@ -786,6 +787,52 @@ describe('the page has to speak for the document that loaded', () => {
       elapsedMs: 9
     })
     expect(reactivated.session.pageReady).toBe(false)
+  })
+})
+
+/** A load the view refuses or never commits reports nothing, so only a clock ends the wait (#28626). */
+describe('the view has to finish the document it was given', () => {
+  it('arms the wait when a generation is put on screen', () => {
+    expect(readySession().effects).toContainEqual({ kind: 'await-document-load' })
+  })
+
+  it('arms it again for a new document and for a remount', () => {
+    const ready = readySession()
+    expect(run(ready.session, { type: 'document-started' }).effects).toEqual([
+      { kind: 'await-document-load' }
+    ])
+    expect(run(ready.session, { type: 'remounted', sessionId: 'session-two' }).effects).toEqual([
+      { kind: 'await-document-load' }
+    ])
+  })
+
+  it('deletes the cache and runs the flow again when no document ever finished', () => {
+    const started = run(readySession().session, { type: 'document-started' })
+    const step = run(started.session, { type: 'document-load-deadline' })
+    expect(step.effects).toEqual([{ kind: 'delete-cache' }, { kind: 'open-cache' }])
+    expect(step.session.state.kind).toBe('checking')
+  })
+
+  it('does nothing once the document finished or the page spoke', () => {
+    const loaded = run(readySession().session, { type: 'document-loaded' })
+    expect(run(loaded.session, { type: 'document-load-deadline' }).effects).toEqual([])
+    const spoke = run(readySession().session, { type: 'page-ready' })
+    expect(run(spoke.session, { type: 'document-load-deadline' }).session.state.kind).toBe('ready')
+  })
+
+  it('drops the wait a replaced document left behind', () => {
+    const ready = readySession()
+    const armed = ready.session.flow
+    const started = run(ready.session, { type: 'document-started' })
+    const step = run(started.session, { type: 'document-load-deadline', flow: armed })
+    expect(step.effects).toEqual([])
+    expect(step.session.state.kind).toBe('ready')
+  })
+
+  it('makes the next document finish on its own', () => {
+    const loaded = run(readySession().session, { type: 'document-loaded' })
+    const started = run(loaded.session, { type: 'document-started' })
+    expect(started.session.documentLoaded).toBe(false)
   })
 })
 

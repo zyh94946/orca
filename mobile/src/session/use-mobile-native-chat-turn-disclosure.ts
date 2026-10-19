@@ -12,6 +12,7 @@ import {
   type NativeChatTurnJournal
 } from '../../../src/shared/native-chat-turn-membership'
 import { nativeChatMessagesWaitingBehindLiveTurn } from '../../../src/shared/native-chat-messages-waiting-behind-live-turn'
+import { NATIVE_CHAT_STREAMING_ID } from '../../../src/shared/native-chat-streaming'
 import {
   nativeChatRowsInDrawOrder,
   nativeChatTurnBarRows
@@ -44,6 +45,9 @@ export type MobileNativeChatTurnRow = {
    *  toggle re-renders roster rows alone. */
   subagentGroupsOpen?: ReadonlySet<string>
   onToggleSubagentGroup: (groupId: string) => void
+  /** A long message of yours the reader opened; held here so scrolling it away keeps it open. */
+  userMessageOpen: boolean
+  onToggleUserMessage: (messageId: string) => void
 }
 
 /** The live activity line, when it draws, and whether the reader opened the block it discloses. */
@@ -145,7 +149,8 @@ export function useMobileNativeChatTurnDisclosure({
           rows,
           turnJournal?.items,
           stopping,
-          turnJournal?.submissions
+          turnJournal?.submissions,
+          turnJournal ?? {}
         )
       : null
     if (!ids?.size) {
@@ -170,6 +175,7 @@ export function useMobileNativeChatTurnDisclosure({
   const [expandedTurnIds, toggleExpandedTurn] = useScopedOpenKeys(scopeKey)
   const [expandedReasoning, toggleReasoning] = useScopedOpenKeys(scopeKey)
   const [openSubagentGroups, toggleSubagentGroup] = useScopedOpenKeys(scopeKey)
+  const [openUserMessages, toggleUserMessage] = useScopedOpenKeys(scopeKey)
   const bars = useMemo(() => nativeChatTurnBarRows(rows, turnKeys), [rows, turnKeys])
 
   const { active, activeTurnKey, completedByTurn } = turnStatuses
@@ -228,8 +234,11 @@ export function useMobileNativeChatTurnDisclosure({
         // transcript, defeating the row's memo; caching one per turn would mean
         // writing a ref during render, which react-freeze can discard.
         turnKey: turnKey && turnStatus?.workedSeconds != null ? turnKey : undefined,
-        // With no user boundary at all, the session's working state stays authoritative.
-        activeTurnIsWorking: inLiveWorkingTurn(index),
+        // With no user boundary at all, the session's working state stays authoritative. The bridge
+        // lane has no turns: only its synthetic streaming row is known to be in the live one.
+        activeTurnIsWorking: enabled
+          ? inLiveWorkingTurn(index)
+          : isWorking && message.id === NATIVE_CHAT_STREAMING_ID,
         mayStillGrow: !lineYields && message.id === latestAssistantId,
         reasoningIsLive: message.id === liveReasoningId,
         reasoningExpanded:
@@ -239,7 +248,9 @@ export function useMobileNativeChatTurnDisclosure({
         ...(message.blocks.some(isSubagentGroupBlock)
           ? { subagentGroupsOpen: openSubagentGroups }
           : {}),
-        onToggleSubagentGroup: toggleSubagentGroup
+        onToggleSubagentGroup: toggleSubagentGroup,
+        userMessageOpen: message.role === 'user' && openUserMessages.has(message.id),
+        onToggleUserMessage: toggleUserMessage
       }
     },
     [
@@ -258,7 +269,10 @@ export function useMobileNativeChatTurnDisclosure({
       expandedReasoning,
       toggleReasoning,
       openSubagentGroups,
-      toggleSubagentGroup
+      toggleSubagentGroup,
+      isWorking,
+      openUserMessages,
+      toggleUserMessage
     ]
   )
 

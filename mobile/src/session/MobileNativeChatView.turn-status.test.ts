@@ -3,6 +3,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
 import { MobileNativeChatView } from './MobileNativeChatView'
+import { styles } from './mobile-native-chat-view-styles'
 
 const scrollToEnd = vi.hoisted(() => vi.fn())
 const scrollToOffset = vi.hoisted(() => vi.fn())
@@ -61,17 +62,20 @@ vi.mock('./MobileAgentWorkingIndicator', () => ({
 // the only composer behaviour these banner tests exercise.
 vi.mock('./MobileNativeChatComposer', async () => {
   const React = await import('react')
+  const { MobileNativeChatStopButton } = await import('./MobileNativeChatStopButton')
   return {
     MobileNativeChatComposer: (props: {
       onSend: (text: string) => Promise<boolean>
       disabled?: boolean
       placeholder?: string
+      stop?: { onStop?: () => void; held: boolean } | null
     }) =>
-      React.createElement('Composer', {
-        ...props,
-        accessibilityLabel: 'Send message',
-        onPress: () => props.onSend('hi')
-      })
+      React.createElement(
+        'Composer',
+        { ...props, accessibilityLabel: 'Send message', onPress: () => props.onSend('hi') },
+        // The real composer draws Stop in Send's slot while its draft is empty, as here.
+        props.stop ? React.createElement(MobileNativeChatStopButton, props.stop) : null
+      )
   }
 })
 
@@ -188,7 +192,8 @@ describe('MobileNativeChatView', () => {
         : null
     }
 
-    function workingIndicators(): ReactTestInstance[] {
+    /** The bridge cue stays outside the scrolling transcript. */
+    function workingIndicators(): unknown[] {
       return renderer!.root.findAll((node) => String(node.type) === 'WorkingIndicator')
     }
 
@@ -322,6 +327,13 @@ describe('MobileNativeChatView', () => {
       expect(props.activeTurnIsWorking).toBe(false)
       expect(footerProps()).toBeNull()
       expect(workingIndicators()).toHaveLength(1)
+      expect(
+        renderer!.root.find((node) => String(node.type) === 'WorkingIndicator').parent?.props
+          .pointerEvents
+      ).toBe('none')
+      const list = renderer!.root.find((node) => String(node.type) === 'FlatList')
+      expect(list.props.ListFooterComponent).toBeNull()
+      expect(list.props.contentContainerStyle).toBe(styles.listContentUnderFloatingControls)
     })
 
     it('settles the finished turn to a tappable duration', async () => {

@@ -1,4 +1,5 @@
 import { isFloatingWorkspaceId } from '../../../shared/floating-workspace-worktree'
+import { isAgentSessionCreateAdmissionRefusal } from '../../../shared/agent-session-definitive-refusal'
 import type { AgentJournalMessageItem } from '../../../shared/agent-session-journal-types'
 import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
 import {
@@ -25,6 +26,7 @@ import {
   hostCanStartRecord
 } from './structured-agent-session-provider-support'
 import { performSend } from './structured-agent-session-turns'
+import { observedReceipt } from './structured-agent-session-operation-settlement'
 import { attachStructuredAgentSession } from './structured-agent-session-attach-orchestration'
 import { readAgentSessionHydrationPage } from './agent-session-history-page'
 import { resolveAgentSessionReplayOutcome } from './structured-agent-session-replay-outcome'
@@ -152,7 +154,13 @@ async function foundConversation(
     ? { ok: true as const, items: null }
     : await prepareAdoptedTranscript(params)
   if (!prepared.ok) {
-    return prepared
+    const { refusal } = prepared
+    return {
+      ok: false,
+      refusal: isAgentSessionCreateAdmissionRefusal(refusal)
+        ? { ...refusal, createAttemptRefusedBeforeCommit: true }
+        : refusal
+    }
   }
   const existing = context.sessions.get(sessionId)
   const opened = existing
@@ -193,7 +201,7 @@ async function foundConversation(
             resolvedBy: callerKey,
             persistOptions: async () => {},
             publish: () => {},
-            operationReceipt: store.founding.receipt(request),
+            operationReceipt: observedReceipt(store, store.founding.receipt(request)),
             now: context.now
           },
           {
@@ -204,7 +212,8 @@ async function foundConversation(
               fields: { body: first.body }
             }),
             origin: 'client',
-            source: { kind: 'user' }
+            source: { kind: 'user' },
+            ...openingMessageOptions(candidate.record.options)
           }
         )
         if (!sent.ok) {
@@ -282,4 +291,13 @@ export function structuredAgentSessionEntryDelegates(
       options?: StructuredAgentSessionCreateOptions
     ) => createStructuredAgentSession(context(), caller.callerKey, params, options)
   }
+}
+
+/** The model and effort the chat was created with, which its opening message runs on as a send's
+ *  carried ones do. */
+function openingMessageOptions(options: Readonly<Record<string, string>> | undefined): {
+  options?: Readonly<Record<string, string>>
+} {
+  const { model, effort } = options ?? {}
+  return model ? { options: { model, ...(effort ? { effort } : {}) } } : {}
 }

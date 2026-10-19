@@ -501,6 +501,18 @@
           }
         },
         {
+          "complete": "jira.status#1",
+          "params": {
+            "$undefined": true
+          },
+          "reply": {
+            "ok": true,
+            "result": {
+              "connected": false
+            }
+          }
+        },
+        {
           "checkpoint": "settled"
         }
       ],
@@ -572,6 +584,18 @@
           }
         },
         {
+          "complete": "jira.status#1",
+          "params": {
+            "$undefined": true
+          },
+          "reply": {
+            "ok": true,
+            "result": {
+              "connected": false
+            }
+          }
+        },
+        {
           "checkpoint": "settled"
         }
       ],
@@ -629,6 +653,18 @@
         },
         {
           "complete": "linear.status#1",
+          "params": {
+            "$undefined": true
+          },
+          "reply": {
+            "ok": true,
+            "result": {
+              "connected": false
+            }
+          }
+        },
+        {
+          "complete": "jira.status#1",
           "params": {
             "$undefined": true
           },
@@ -1526,6 +1562,18 @@
           }
         },
         {
+          "complete": "jira.status#1",
+          "params": {
+            "$undefined": true
+          },
+          "reply": {
+            "ok": true,
+            "result": {
+              "connected": false
+            }
+          }
+        },
+        {
           "checkpoint": "settled"
         }
       ]
@@ -1608,6 +1656,18 @@
           }
         },
         {
+          "complete": "jira.status#1",
+          "params": {
+            "$undefined": true
+          },
+          "reply": {
+            "ok": true,
+            "result": {
+              "connected": false
+            }
+          }
+        },
+        {
           "checkpoint": "settled"
         }
       ]
@@ -1676,6 +1736,18 @@
         },
         {
           "complete": "linear.status#1",
+          "params": {
+            "$undefined": true
+          },
+          "reply": {
+            "ok": true,
+            "result": {
+              "connected": false
+            }
+          }
+        },
+        {
+          "complete": "jira.status#1",
           "params": {
             "$undefined": true
           },
@@ -2809,6 +2881,18 @@
           }
         },
         {
+          "complete": "jira.status#1",
+          "params": {
+            "$undefined": true
+          },
+          "reply": {
+            "ok": true,
+            "result": {
+              "connected": false
+            }
+          }
+        },
+        {
           "checkpoint": "settled"
         },
         {
@@ -2866,6 +2950,18 @@
         },
         {
           "complete": "linear.status#2",
+          "params": {
+            "$undefined": true
+          },
+          "reply": {
+            "ok": true,
+            "result": {
+              "connected": false
+            }
+          }
+        },
+        {
+          "complete": "jira.status#2",
           "params": {
             "$undefined": true
           },
@@ -3411,6 +3507,18 @@
           }
         },
         {
+          "complete": "jira.status#1",
+          "params": {
+            "$undefined": true
+          },
+          "reply": {
+            "ok": true,
+            "result": {
+              "connected": false
+            }
+          }
+        },
+        {
           "checkpoint": "settled"
         },
         {
@@ -3476,6 +3584,18 @@
         },
         {
           "complete": "linear.status#2",
+          "params": {
+            "$undefined": true
+          },
+          "reply": {
+            "ok": true,
+            "result": {
+              "connected": false
+            }
+          }
+        },
+        {
+          "complete": "jira.status#2",
           "params": {
             "$undefined": true
           },
@@ -7843,6 +7963,20 @@
           }
         },
         {
+          "complete": "settings.get#1",
+          "params": {
+            "$undefined": true
+          },
+          "reply": {
+            "ok": true,
+            "result": {
+              "settings": {
+                "compactWorktreeCards": true
+              }
+            }
+          }
+        },
+        {
           "action": "sort",
           "id": "sort"
         },
@@ -9268,7 +9402,7 @@
         {
           "complete": "preflight.detectAgents#1",
           "params": {
-            "$undefined": true
+            "worktreeId": "repo-9::/w"
           },
           "reply": {
             "ok": true,
@@ -9361,7 +9495,7 @@
         {
           "complete": "preflight.detectAgents#1",
           "params": {
-            "$undefined": true
+            "worktreeId": "repo-9::/w"
           },
           "reply": {
             "ok": true,
@@ -9454,7 +9588,7 @@
         {
           "complete": "preflight.detectAgents#1",
           "params": {
-            "$undefined": true
+            "worktreeId": "repo-9::/w"
           },
           "reply": {
             "ok": true,
@@ -18538,7 +18672,7 @@
         {
           "complete": "preflight.detectAgents#1",
           "params": {
-            "$undefined": true
+            "worktreeId": "workspace-1"
           },
           "reply": {
             "ok": true,
@@ -23149,7 +23283,7 @@
         {
           "complete": "preflight.detectAgents#1",
           "params": {
-            "$undefined": true
+            "worktreeId": "repo-1::/folder"
           },
           "reply": {
             "ok": true,

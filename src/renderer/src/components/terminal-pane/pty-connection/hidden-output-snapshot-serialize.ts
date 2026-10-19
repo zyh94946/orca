@@ -1,11 +1,11 @@
-import { isHostAnsweredSnapshotRetryCause } from '@/runtime/remote-runtime-terminal-multiplexer'
+import { isRemoteRuntimePtyId } from '../../../../../shared/remote-runtime-pty-id'
+import { isHostAnsweredSnapshotRetryCause } from '@/runtime/remote-runtime-terminal-multiplexer-types'
 import { onTerminalScrollIntentFollowOutput } from '@/lib/pane-manager/terminal-scroll-intent'
 
 import { shouldWritePtyOutputForeground } from './foreground-output-scan'
 import { readE2eHiddenSnapshotOverride } from './e2e-terminal-pty-harness'
-import { isRemoteRuntimePtyId } from './paired-parked-terminal-restore'
 
-import type { PtyBufferSnapshot } from '../pty-transport'
+import type { PtyBufferSnapshot } from '../pty-transport-types'
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
 export type HiddenOutputSnapshotResult =
@@ -51,11 +51,15 @@ export function bindSerializeHiddenOutputSnapshot(session: ConnectPanePtySession
       session.hiddenOutputRestoreLegacyPtyId === ptyId ||
       typeof session.transport.serializeBufferOutcome !== 'function'
     ) {
-      const snapshot = await session.transport.serializeBuffer(opts)
+      const snapshot = await session.transport.serializeBuffer({ ...opts, repaintsPane: true })
       return snapshot ? { kind: 'snapshot', snapshot } : { kind: 'unknown-legacy-host' }
     }
     try {
-      const outcome = await session.transport.serializeBufferOutcome(opts)
+      // Why repaintsPane: every caller paints this image, so live output resumes after its seq.
+      const outcome = await session.transport.serializeBufferOutcome({
+        ...opts,
+        repaintsPane: true
+      })
       if (outcome.availability.kind === 'snapshot') {
         // A success frame with no image is still the host's own answer to a request it received.
         return outcome.snapshot

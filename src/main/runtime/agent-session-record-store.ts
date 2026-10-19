@@ -8,7 +8,6 @@ import { commitConversationCommandRecord } from './agent-session-conversation-co
 import { pinAgentSessionRecordLaunchDirectory } from './agent-session-record-launch-directory'
 import {
   agentSessionOperationKey,
-  type AgentSessionOperationClaim,
   type AgentSessionOperationDecision,
   type AgentSessionOperationRow
 } from '../../shared/agent-session-operation-ledger'
@@ -72,6 +71,7 @@ import {
 } from './agent-session-tab-table'
 import type { JournalHostDatabase } from '../native-chat/agent-session-journal/journal-host-database'
 import type { JournalOperationReceipt } from '../native-chat/agent-session-journal/journal-row-writer'
+import { agentSessionOperationOutcomeReceipt } from './agent-session-operation-receipt'
 import { loadAgentSessionStoreRows } from './agent-session-record-rows'
 import { AgentSessionStoreTransactions } from './agent-session-store-transactions'
 import { createAgentSessionFoundingStore } from './agent-session-founding-store'
@@ -80,8 +80,6 @@ import {
   type CompareAndSetConversationName,
   setAgentSessionRecordConversationName
 } from './agent-session-record-conversation-name'
-
-type AgentSessionOperationSettlement = Parameters<typeof settleAgentSessionOperationInto>[1]
 
 export const AGENT_SESSION_LEASE_TTL_MS = 30_000,
   AGENT_SESSION_LEASE_RENEW_INTERVAL_MS = 10_000
@@ -213,7 +211,7 @@ export class AgentSessionRecordStore {
   async proveOwner(args: {
     sessionId: string
     fence: number
-    link: AgentSessionProviderHandleLink
+    link?: AgentSessionProviderHandleLink
     now: number
     leaseTtlMs?: number
     options?: Readonly<Record<string, string>>
@@ -222,7 +220,7 @@ export class AgentSessionRecordStore {
       const proved = proveAgentSessionOwner({
         record,
         fence: args.fence,
-        link: args.link,
+        ...(args.link ? { link: args.link } : {}),
         now: args.now,
         leaseTtlMs: args.leaseTtlMs ?? AGENT_SESSION_LEASE_TTL_MS
       })
@@ -266,15 +264,14 @@ export class AgentSessionRecordStore {
   }
 
   /**
-   * Adjudicate every lease this host loaded. No lease grants a writer until it appears here. On a
-   * database a newer Orca wrote, the verdicts are kept in memory only: they are re-derived at every
+   * Adjudicate loaded leases, or only the addressed session. No lease grants a writer until it
+   * appears here. On a newer database, verdicts stay in memory only: they are re-derived at every
    * start, and none grants a writer there, since every grant is a write.
    */
   async reconcileOnRestart(
     args: AgentSessionRestartProbeArgs
   ): Promise<Map<string, AgentSessionRecord>> {
-    const pending = this.listRecords().filter((record) => record.lease.unreconciled)
-    const probes = await collectAgentSessionRestartProbes(pending, args)
+    const probes = await collectAgentSessionRestartProbes(this, args)
     return this.transact((draft) => applyAgentSessionRestartProbes(draft, probes, args.now), {
       inMemoryWhenReadOnly: true
     })
@@ -300,10 +297,7 @@ export class AgentSessionRecordStore {
   /** Durable compare-and-swap for the right to run an admitted operation's effect: two replays both
    *  read `pending`, and only a conditional swap tells the one that may run from the one that must
    *  replay. */
-  claimOperation = (args: {
-    callerKey: string
-    operationId: string
-  }): Promise<AgentSessionOperationClaim> =>
+  claimOperation = (args: Parameters<typeof claimAgentSessionOperationInto>[1]) =>
     this.transact((draft) => claimAgentSessionOperationInto(draft, args))
 
   /** Admission and, when `claimAfter` allows, the claim: one durable write before the effect. */
@@ -312,13 +306,20 @@ export class AgentSessionRecordStore {
     claimAfter: ClaimAfterAdmission
   ) => this.transact((draft) => admitAndClaimAgentSessionOperationInto(draft, args, claimAfter))
 
-  recordOperationOutcome = (args: AgentSessionOperationSettlement): Promise<void> =>
-    this.transact((draft) => settleAgentSessionOperationInto(draft, args))
+  recordOperationOutcome = (
+    args: Parameters<typeof settleAgentSessionOperationInto>[1]
+  ): Promise<void> => this.transact((draft) => settleAgentSessionOperationInto(draft, args))
 
-  /** The same settlement, committed by the journal write that makes it true. It changes only the
-   *  ledger, so no record listener is owed. */
-  operationOutcomeReceipt = (args: AgentSessionOperationSettlement): JournalOperationReceipt =>
-    this.transactions.receipt((draft) => settleAgentSessionOperationInto(draft, args))
+  /** That settlement, or an accepted row inserted if absent, committed by the journal write that
+   *  makes it true. It changes only the ledger, so no record listener is owed. */
+  operationOutcomeReceipt = (args: Parameters<typeof agentSessionOperationOutcomeReceipt>[1]) =>
+    agentSessionOperationOutcomeReceipt(this.transactions, args)
+
+  commitOperationReceipt = (receipt: JournalOperationReceipt) =>
+    this.transactions.commitReceipt(receipt)
+
+  readCommandReceipt = (...args: Parameters<AgentSessionStoreTransactions['readCommandReceipt']>) =>
+    this.transactions.readCommandReceipt(...args)
 
   replaceSessionOptions = (args: AgentSessionOptionsReplacement): Promise<AgentSessionRecord> =>
     this.mutate(args.sessionId, (record) => replaceAgentSessionRecordOptions(record, args))

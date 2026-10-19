@@ -499,11 +499,11 @@ describe('liveness and stop commands, run for real', () => {
     expect(existsSync(terminatedFile)).toBe(false)
   })
 
-  it('reports UNKNOWN with no pid file, and DEAD for a pid that has exited', () => {
-    // A slot installed but never launched: only GC reads it apart from UNKNOWN.
+  it('reports NEVER_LAUNCHED with no launch artifacts, UNKNOWN with no pid, DEAD for an exited pid', () => {
+    // A slot installed but never launched: proven exit, so GC may remove it and a wake may start it.
     rmSync(join(versionDir, ORCAD_READINESS_FILENAME), { force: true })
     const neverLaunched = sh(orcadLivenessProbeCommand(host, versionDir))
-    expect(parseOrcadLiveness(neverLaunched)).toBe('UNKNOWN')
+    expect(parseOrcadLiveness(neverLaunched)).toBe('NEVER_LAUNCHED')
     expect(orcadLivenessAnswerBlocksGc(neverLaunched)).toBe(false)
     writeFileSync(join(versionDir, ORCAD_READINESS_FILENAME), '')
     expect(orcadLivenessAnswerBlocksGc(sh(orcadLivenessProbeCommand(host, versionDir)))).toBe(true)
@@ -581,8 +581,12 @@ describe('liveness and stop commands, run for real', () => {
     const child = spawn('/bin/sh', ['-c', 'exit 0'], { stdio: 'ignore' })
     try {
       writeFileSync(join(versionDir, ORCAD_PID_FILENAME), String(child.pid))
-      // Block the event loop so Node never reaps it; the process is now a zombie.
-      sh('sleep 1')
+      // Block Node's reaper until the shell observes the required zombie state.
+      sh(
+        `attempt=0; while [ "$attempt" -lt 100 ]; do ` +
+          `case "$(ps -o stat= -p ${child.pid} 2>/dev/null)" in *Z*) exit 0;; esac; ` +
+          `attempt=$((attempt + 1)); sleep 0.01; done; exit 1`
+      )
       expect(sh(`ps -o stat= -p ${child.pid} || echo GONE`).trim()).toMatch(/^Z/)
       expect(sh(`kill -0 ${child.pid} 2>/dev/null && echo LIVE || echo DEAD`).trim()).toBe('LIVE')
       expect(parseOrcadLiveness(sh(orcadLivenessProbeCommand(host, versionDir)))).toBe('DEAD')

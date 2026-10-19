@@ -27,12 +27,10 @@ import { translate } from '@/i18n/i18n'
 import { sshConnectVerb } from '@/ssh/ssh-connect-verb'
 import { parseExecutionHostId } from '../../../../shared/execution-host'
 import { describeRuntimeCompatBlock } from '../../../../shared/protocol-compat'
-import {
-  clearRuntimeCompatibilityCache,
-  unwrapRuntimeRpcResult
-} from '@/runtime/runtime-rpc-client'
+import { clearRuntimeCompatibilityCache } from '@/runtime/runtime-rpc-client'
+import { unwrapRuntimeRpcResult } from '@/runtime/runtime-rpc-result'
 import type { RuntimeStatus } from '../../../../shared/runtime-types'
-import type { HostHeaderRow } from './host-section-rows'
+import type { HostHeaderRow } from '../../../../shared/sidebar-list/host-section-rows'
 import { buildHostHeaderMenuModel } from './host-header-menu-items'
 import { HostRenameDialog } from './HostRenameDialog'
 import { HostRemoveDialog } from './HostRemoveDialog'

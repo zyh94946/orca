@@ -12,6 +12,7 @@
  * the process's whole life; redirecting means the deploy can disconnect and the supervisor
  * still owns a running service.
  */
+import type { OrcadLaunchEnvEntry } from './orcad-host-transport'
 import { ORCAD_LAUNCHER_FILENAME, ORCAD_SERVER_ENTRY_FILENAME } from '../../shared/orcad-artifacts'
 import { shellEscape } from './ssh-connection-utils'
 import {
@@ -22,6 +23,7 @@ import {
   type RemoteHostPlatform
 } from './ssh-remote-platform'
 import { RELAY_REMOTE_DIR } from './relay-protocol'
+import { ORCAD_WSL_HOST_ENV } from '../ipc/wsl-guest-windows-drive-path'
 import {
   assertPosixOrcadHost as assertPosixHost,
   ORCAD_LOG_FILENAME,
@@ -34,6 +36,11 @@ import type { ServeReadiness } from '../server/serve-readiness'
 import { selectOrcadSlotRuntimeCommand } from './orcad-remote-runtime'
 import { ORCAD_STOP_REQUEST_FILENAME } from '../../shared/orcad-stop-request'
 import { orcadWindowsSlotOpCommand } from './orcad-remote-windows-node'
+import {
+  captureOrcadLaunchSshSessionCommand,
+  recordsOrcadLaunchSshSession,
+  writeOrcadLaunchSshSessionCommand
+} from './orcad-launch-ssh-session'
 import {
   ORCAD_E2E_IDLE_TIMEOUT_ENV,
   ORCAD_MANAGED_ACTIVATION_ROOT_ENV,
@@ -76,13 +83,26 @@ export function orcadManagedLaunchEnv(
 }
 
 /**
+ * How the candidate leaves the exec's session. `nohup … &` dies with its `wsl.exe --exec` session
+ * on a distro without systemd, so a WSL slot starts in a session of its own.
+ */
+export type OrcadLaunchDetach = 'nohup' | 'setsid'
+
+const ORCAD_SETSID_PID_WAIT_TRIES = 100
+
+/**
  * Launch the candidate detached and echo its PID.
  *
  * Why `--bind` is always passed explicitly: orcad defaults to loopback, but a default is a
  * thing a future version can change. The deploy states the posture it intends rather than
  * inheriting whatever the installed build happens to default to.
  */
-export function orcadLaunchCommand(host: RemoteHostPlatform, spec: OrcadLaunchSpec): string {
+export function orcadLaunchCommand(
+  host: RemoteHostPlatform,
+  spec: OrcadLaunchSpec,
+  detach: OrcadLaunchDetach = 'nohup',
+  hostEnv: readonly OrcadLaunchEnvEntry[] = []
+): string {
   assertPosixHost(host)
   const dir = shellEscape(spec.remoteInstallDir)
   const readiness = shellEscape(
@@ -97,7 +117,10 @@ export function orcadLaunchCommand(host: RemoteHostPlatform, spec: OrcadLaunchSp
     ...(remoteBasename(baseDir, host) === RELAY_REMOTE_DIR ? [baseDir] : []),
     spec.remoteInstallDir
   ]
+  // Why in the launching shell: the detached list below runs in a subshell whose variables are lost.
+  const recordSession = detach === 'nohup' && recordsOrcadLaunchSshSession(host)
   return [
+    ...(recordSession ? [captureOrcadLaunchSshSessionCommand()] : []),
     // Why first: the readiness file carries the pairing offer's device token, so every file this
     // launch creates must be owner-only from birth, not only the ones after the exec.
     'umask 077 &&',
@@ -113,16 +136,61 @@ export function orcadLaunchCommand(host: RemoteHostPlatform, spec: OrcadLaunchSp
     `{ chmod 600 ${pidFile} ${log} 2>/dev/null || :; } &&`,
     // A stop request the previous process never consumed must not stop this one.
     `rm -f ${shellEscape(joinRemotePath(host, spec.remoteInstallDir, ORCAD_STOP_REQUEST_FILENAME))} &&`,
+    ...(detach === 'setsid' ? [`rm -f ${pidFile} &&`] : []),
     `ORCA_VERSION=${shellEscape(spec.fullVersion)}`,
     `ORCA_USER_DATA=${shellEscape(spec.userDataDir)}`,
     ...orcadManagedLaunchEnv(spec).map(([name, value]) => `${name}=${shellEscape(value)}`),
-    // Keep $! equal to the runtime PID rather than a waiting shell's PID.
-    // Older clients identify the live PID by orcad.js; the pinned launcher loads the body in-place.
-    `exec nohup "$orcad_runtime" ${entry}`,
-    `--json --bind ${shellEscape(spec.bindHost)} --port ${String(spec.port)}`,
-    `> ${readiness} 2>> ${log} < /dev/null &`,
-    `echo $! > ${pidFile} && cat ${pidFile}`
+    ...(detach === 'setsid'
+      ? setsidLaunchTail(entry, spec, readiness, log, pidFile, hostEnv)
+      : [
+          // Keep $! equal to the runtime PID rather than a waiting shell's PID.
+          // Older clients identify the live PID by orcad.js; the pinned launcher loads the body in-place.
+          `exec nohup "$orcad_runtime" ${entry}`,
+          `--json --bind ${shellEscape(spec.bindHost)} --port ${String(spec.port)}`,
+          `> ${readiness} 2>> ${log} < /dev/null &`,
+          `echo $! > ${pidFile} &&`,
+          ...(recordSession
+            ? [`${writeOrcadLaunchSshSessionCommand(host, spec.userDataDir)} &&`]
+            : []),
+          `cat ${pidFile}`
+        ])
   ].join(' ')
+}
+
+/**
+ * The forked child records its own PID (`$$` survives its exec into the runtime) because the
+ * `setsid -f` parent exits at once. busybox `setsid` has no `-f`; backgrounding it is equivalent
+ * there because a background child of a non-interactive shell never leads a process group.
+ */
+function setsidLaunchTail(
+  entry: string,
+  spec: OrcadLaunchSpec,
+  readiness: string,
+  log: string,
+  pidFile: string,
+  hostEnv: readonly OrcadLaunchEnvEntry[]
+): string[] {
+  return [
+    // Only a setsid (WSL host) launch marks itself; SSH keeps its byte-for-byte command.
+    `${ORCAD_WSL_HOST_ENV}=1`,
+    ...hostEnv.map(([name, value]) => `${assertEnvName(name)}=${shellEscape(value)}`),
+    'sh -c \'orcad_detach() { if setsid -f true >/dev/null 2>&1; then setsid -f "$@"; ' +
+      'else setsid "$@" & fi; }; orcad_detach "$@"\' orcad-detach',
+    `sh -c 'echo $$ > "$1" && shift && exec "$@"' orcad-launch ${pidFile}`,
+    `"$orcad_runtime" ${entry}`,
+    `--json --bind ${shellEscape(spec.bindHost)} --port ${String(spec.port)}`,
+    `> ${readiness} 2>> ${log} < /dev/null &&`,
+    `orcad_wait=0; while [ ! -s ${pidFile} ] && [ "$orcad_wait" -lt ${ORCAD_SETSID_PID_WAIT_TRIES} ];`,
+    'do sleep 0.05; orcad_wait=$((orcad_wait + 1)); done;',
+    `cat ${pidFile}`
+  ]
+}
+
+function assertEnvName(name: string): string {
+  if (!/^[A-Z_][A-Z0-9_]*$/.test(name)) {
+    throw new Error(`orcad_launch_env_name_invalid:${name}`)
+  }
+  return name
 }
 
 export function readOrcadReadinessCommand(
@@ -142,7 +210,7 @@ export function readOrcadReadinessCommand(
  * and a `kill -0` that failed for a reason other than "no such process" — a permission
  * error means someone else's process holds that PID, which is evidence of neither. A slot with
  * neither a PID file nor a readiness file (which a launch creates first) answers
- * `NEVER_LAUNCHED`, which only GC reads apart from `UNKNOWN`.
+ * `NEVER_LAUNCHED`: nothing was ever started from it, so like `DEAD` it is proven exit.
  */
 export function orcadLivenessProbeCommand(
   host: RemoteHostPlatform,
@@ -172,25 +240,32 @@ export function orcadLivenessProbeCommand(
   ].join(' ')
 }
 
-export type OrcadLiveness = 'LIVE' | 'DEAD' | 'UNKNOWN'
+export const ORCAD_NEVER_LAUNCHED = 'NEVER_LAUNCHED'
 
+export type OrcadLiveness = 'LIVE' | 'DEAD' | 'UNKNOWN' | typeof ORCAD_NEVER_LAUNCHED
+
+/** The probe's last line; anything but a known word is `UNKNOWN`, never a guess. */
 export function parseOrcadLiveness(output: string): OrcadLiveness {
   const value = output.trim().split('\n').pop()?.trim()
-  return value === 'LIVE' || value === 'DEAD' ? value : 'UNKNOWN'
+  return value === 'LIVE' || value === 'DEAD' || value === ORCAD_NEVER_LAUNCHED ? value : 'UNKNOWN'
 }
 
-export const ORCAD_NEVER_LAUNCHED = 'NEVER_LAUNCHED'
+/**
+ * Proven exit: a dead PID, or a slot nothing was ever started from. `UNKNOWN` proves nothing,
+ * so a reader that would start, replace or remove must not act on it.
+ */
+export function orcadLivenessProvenExited(liveness: OrcadLiveness): boolean {
+  return liveness === 'DEAD' || liveness === ORCAD_NEVER_LAUNCHED
+}
 
 /** GC's reading of a liveness answer: a slot that never launched holds nothing and is removable. */
 export function orcadLivenessAnswerBlocksGc(output: string): boolean {
-  return output.trim().split('\n').pop()?.trim() === ORCAD_NEVER_LAUNCHED
-    ? false
-    : orcadLivenessBlocksGc(parseOrcadLiveness(output))
+  return orcadLivenessBlocksGc(parseOrcadLiveness(output))
 }
 
 /** True when GC must leave this directory alone. Inconclusive counts as in use. */
 export function orcadLivenessBlocksGc(liveness: OrcadLiveness): boolean {
-  return liveness !== 'DEAD'
+  return !orcadLivenessProvenExited(liveness)
 }
 
 export type OrcadReadinessParse =

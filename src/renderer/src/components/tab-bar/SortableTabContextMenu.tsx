@@ -24,6 +24,7 @@ import { TerminalTabSplitMenuSection } from './TerminalTabSplitMenuSection'
 import { TabSessionSurfaceSwitchMenuItems } from './TabSessionSurfaceSwitchMenuItems'
 import type { NativeChatTabSession } from './tab-session-history-switch'
 import { TAB_CONTEXT_MENU_CONTENT_CLASS } from './tab-context-menu-sizing'
+import { CopyTabIdMenuItem } from './CopyTabIdMenuItem'
 
 const TAB_COLORS = [
   {
@@ -100,6 +101,8 @@ type SortableTabContextMenuProps = {
   hasTabsToLeft: boolean
   isPinned: boolean
   onOpenChange: (open: boolean) => void
+  onSessionSwitchComplete?: () => void
+  sessionSwitchOpening?: number | null
   onActivate: (tabId: string) => void
   onClose: (tabId: string) => void
   onCloseOthers: (tabId: string) => void
@@ -134,6 +137,8 @@ export function SortableTabContextMenu({
   hasTabsToLeft,
   isPinned,
   onOpenChange,
+  onSessionSwitchComplete,
+  sessionSwitchOpening,
   onActivate,
   onClose,
   onCloseOthers,
@@ -192,6 +197,8 @@ export function SortableTabContextMenu({
           </>
         ) : null}
         <TabSessionSurfaceSwitchMenuItems
+          key={sessionSwitchOpening}
+          onComplete={onSessionSwitchComplete}
           tab={tab}
           nativeChat={nativeChat}
           leadingSeparator={!showTerminalViewSwitch}
@@ -207,6 +214,7 @@ export function SortableTabContextMenu({
             ? translate('auto.components.tab.bar.SortableTabContextMenu.417722e9c2', 'Unpin Tab')
             : translate('auto.components.tab.bar.SortableTabContextMenu.60f958ec75', 'Pin Tab')}
         </DropdownMenuItem>
+        <CopyTabIdMenuItem unifiedTabId={unifiedTabId} />
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => !isPinned && onClose(tab.id)} disabled={isPinned}>
           <X className="size-3.5" />

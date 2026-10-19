@@ -1,5 +1,4 @@
 import type { MobileWebShellFailureReason } from '../../modules/orca-mobile-web-shell/src/load-state'
-import type { MobileWebBundleManifestRead } from '../transport/mobile-web-bundle-reply-schemas'
 import type { MobileWebPageRoute } from './page-route-policy'
 import type {
   MobileWebBundleCompatManifest,
@@ -42,11 +41,6 @@ export type MobileWebShellManifestFacts = MobileWebBundleCompatManifest & {
   readonly totalAssets: number
   /** Undefined for a desktop older than the field, which is every route staying native. */
   readonly routes: readonly MobileWebPageRoute[] | undefined
-  /** The manifest as it arrived, which is what a same-build hit writes beside the cached assets.
-   *  Carried whole rather than rebuilt from the fields above: the store compares its asset list
-   *  against the stored one, and a re-serialised projection would drop both what this client reads
-   *  loosely and what a newer desktop added. */
-  readonly wire: MobileWebBundleManifestRead
 }
 
 /** What `readActiveGeneration` found, reduced to what a transition reads. */
@@ -142,16 +136,15 @@ export type MobileWebShellSessionEffect =
       readonly totalBytes: number
     }
   | { readonly kind: 'delete-cache' }
-  /** Rewrite the manifest stored beside the generation just opened. Only a same-build hit asks for
-   *  it: the assets are the ones the manifest names, and the routes are an edit newer. Nothing is
-   *  reported back, because the fresh routes are already on the session. */
-  | { readonly kind: 'persist-manifest'; readonly manifest: MobileWebBundleManifestRead }
   /** Mint a new session id for the generation already on screen, which is what remounts the view. */
   | { readonly kind: 'remount' }
   /** Start the clock on the page's first word. Expiry arrives as `page-ready-deadline` for the flow
    *  it was armed in, and nothing cancels it: a `ready` that lands first makes the expiry a no-op,
    *  so the runner owns a timer and none of the decision. */
   | { readonly kind: 'await-page-ready' }
+  /** Start the clock on the view finishing a document. Expiry arrives as `document-load-deadline`;
+   *  a load the native view refuses or never commits reports nothing, so only a clock ends it. */
+  | { readonly kind: 'await-document-load' }
   /** Write down why an update read failed, on the device, for Troubleshoot to show: a release
    *  build forwards no console output, so without it the banner is the only evidence. */
   | { readonly kind: 'record-update-failure'; readonly failure: MobileWebShellUpdateFailureFacts }
@@ -221,6 +214,9 @@ export type MobileWebShellSessionEvent =
    *  for every way a document ends, so this never has to be inferred from silence. */
   | { readonly type: 'page-back-claim'; readonly claimed: boolean }
   | { readonly type: 'page-ready-deadline'; readonly flow: number }
+  | { readonly type: 'document-load-deadline'; readonly flow: number }
+  /** The window crossed the wide-layout threshold. */
+  | { readonly type: 'layout-changed'; readonly wide: boolean }
 
 /** Latches live beside the state because both outlive the state they were set in: `retriedOnce`
  *  spans the delete-and-refetch that puts the state back to `checking`, and `remountedOnce` spans a
@@ -228,6 +224,12 @@ export type MobileWebShellSessionEvent =
 export type MobileWebShellSession = {
   /** The concrete route this session was opened for, matched against what the bundle lists. */
   readonly routePathname: string
+  /** A wide layout: served only under `canOwnHostArea`; the host route gets every route's grants. */
+  readonly wide: boolean
+  /** The route list the view below was built from, so a layout-class change can rebuild it. */
+  readonly routes: readonly MobileWebPageRoute[] | undefined
+  /** This session owns the wide host area: the page draws the sidebar. */
+  readonly ownsHostArea: boolean
   /** Every route pattern this shell would render from the page, as the bundle in hand declares
    *  them. The page is told, so it keeps a navigation into one of them instead of handing it back. */
   readonly pageRoutes: readonly string[]
@@ -245,6 +247,8 @@ export type MobileWebShellSession = {
   readonly pageReady: boolean
   /** Whether this document has reported a frame on screen. Cleared with `pageReady`. */
   readonly pagePainted: boolean
+  /** Whether the view finished this document. Cleared with `pageReady`. */
+  readonly documentLoaded: boolean
   /**
    * Whether the document on screen is holding the device Back key.
    *

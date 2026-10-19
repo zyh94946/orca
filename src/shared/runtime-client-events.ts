@@ -8,10 +8,19 @@ import type { SshConnectionState } from './ssh-types'
 import type { TerminalSideEffectBatch } from './terminal-side-effect-facts'
 import type { RuntimeNativeChatLaunchDraftResolution } from './runtime-types'
 import type { RuntimeNavigationTarget } from './runtime-navigation'
+import type { WorktreeSortOrderUpdate } from './worktree/sort-order-update'
 
 export type RuntimeClientEvent =
   | { type: 'reposChanged' }
-  | { type: 'worktreesChanged'; repoId: string }
+  /** The Workspace options UI state changed; a mirroring phone re-reads it. */
+  | { type: 'workspaceViewChanged' }
+  | {
+      type: 'worktreesChanged'
+      repoId: string
+      sortOrderOnly?: boolean
+      // Why: lets a client patch an order save in place instead of refetching the repo (#27268).
+      sortOrders?: WorktreeSortOrderUpdate[]
+    }
   | ({ type: 'nativeChatLaunchDraftResolved' } & RuntimeNativeChatLaunchDraftResolution)
   | { type: 'terminalSideEffects'; batch: TerminalSideEffectBatch }
   // Why: SSH connections live on the runtime host; paired clients have no IPC
@@ -46,6 +55,7 @@ export type RuntimeClientEvent =
       setup?: WorktreeSetupLaunch
       startup?: WorktreeStartupLaunch
       defaultTabs?: WorktreeDefaultTabsLaunch
+      providesInitialSurface?: boolean
       /** Absent on older hosts; clients must not infer navigation intent from a broadcast. */
       navigation?: RuntimeNavigationTarget
     }
@@ -75,7 +85,8 @@ export function toRuntimeActivateWorktreeEvent(
   setup?: CreateWorktreeResult['setup'],
   startup?: WorktreeStartupLaunch,
   defaultTabs?: CreateWorktreeResult['defaultTabs'],
-  navigation?: RuntimeNavigationTarget
+  navigation?: RuntimeNavigationTarget,
+  providesInitialSurface?: boolean
 ): RuntimeActivateWorktreeEvent {
   return {
     type: 'activateWorktree',
@@ -84,6 +95,7 @@ export function toRuntimeActivateWorktreeEvent(
     ...(navigation ? { navigation } : {}),
     ...(setup ? { setup } : {}),
     ...(startup ? { startup } : {}),
-    ...(defaultTabs ? { defaultTabs } : {})
+    ...(defaultTabs ? { defaultTabs } : {}),
+    ...(providesInitialSurface ? { providesInitialSurface } : {})
   }
 }

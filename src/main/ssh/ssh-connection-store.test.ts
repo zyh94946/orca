@@ -58,6 +58,25 @@ describe('SshConnectionStore', () => {
     expect(mockStore.addSshTarget).toHaveBeenCalledWith(target)
   })
 
+  it('saves the CLI control switch as given, with no consent stamp', () => {
+    const target = sshStore.addTarget({
+      label: 'Box',
+      host: 'box',
+      port: 22,
+      username: 'me',
+      allowRemoteCliControl: true
+    })
+    expect(target.allowRemoteCliControl).toBe(true)
+    expect(target).not.toHaveProperty('allowRemoteCliControlConsent')
+
+    sshStore.updateTarget(target.id, { allowRemoteCliControl: false })
+    expect(mockStore.updateSshTarget).toHaveBeenLastCalledWith(target.id, {
+      allowRemoteCliControl: false
+    })
+    sshStore.updateTarget(target.id, { label: 'Renamed' })
+    expect(mockStore.updateSshTarget).toHaveBeenLastCalledWith(target.id, { label: 'Renamed' })
+  })
+
   it('addTarget stamps source as manual by default', () => {
     const target = sshStore.addTarget({
       label: 'My Server',

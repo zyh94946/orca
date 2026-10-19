@@ -66,10 +66,7 @@ function mountMainWindow(): {
   browserWindowMock.mockImplementation(function () {
     return browserWindowInstance
   })
-  createMainWindow({
-    getUI: () => ({}),
-    getSettings: () => ({ windowBackgroundBlur: false })
-  } as never)
+  createMainWindow(null)
   return { windowHandlers, webContents }
 }
 
@@ -83,7 +80,7 @@ describe('createMainWindow spatial pane focus shortcuts', () => {
   it('still intercepts worktree history when a terminal is not focused', () => {
     const { windowHandlers, webContents } = mountMainWindow()
     const preventDefault = vi.fn()
-    windowHandlers['before-input-event']({ preventDefault } as never, historyBackInput() as never)
+    windowHandlers['before-input-event']({ preventDefault }, historyBackInput())
 
     expect(preventDefault).toHaveBeenCalledTimes(1)
     expect(webContents.send).toHaveBeenCalledWith('ui:worktreeHistoryNavigate', 'back')
@@ -95,10 +92,11 @@ describe('createMainWindow spatial pane focus shortcuts', () => {
       .mocked(ipcMain.on)
       .mock.calls.find(([channel]) => channel === 'ui:setTerminalInputFocused')?.[1]
     expect(setFocusedListener).toBeTypeOf('function')
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: The focus listener only compares sender identity with the mocked webContents.
     setFocusedListener?.({ sender: webContents } as never, true)
 
     const preventDefault = vi.fn()
-    windowHandlers['before-input-event']({ preventDefault } as never, historyBackInput() as never)
+    windowHandlers['before-input-event']({ preventDefault }, historyBackInput())
 
     expect(preventDefault).not.toHaveBeenCalled()
     expect(webContents.send).not.toHaveBeenCalledWith('ui:worktreeHistoryNavigate', 'back')

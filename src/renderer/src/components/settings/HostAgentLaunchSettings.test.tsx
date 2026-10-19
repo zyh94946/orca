@@ -9,6 +9,9 @@ import {
 import { HostAgentLaunchSettings } from './HostAgentLaunchSettings'
 import { TooltipProvider } from '../ui/tooltip'
 import type { AgentPermissionsRenderer } from './AgentLaunchSettingsCatalog'
+import { AgentsPane } from './AgentsPane'
+import { useAppStore } from '@/store'
+import { createGlobalSettingsFixture } from '../../../../shared/global-settings-test-fixture'
 
 const transport = vi.hoisted(() => ({ read: vi.fn(), mutate: vi.fn(), detection: vi.fn() }))
 vi.mock('./agent-launch-settings-transport', () => ({
@@ -54,6 +57,129 @@ beforeEach(() => {
 })
 
 describe('host launch settings form', () => {
+  it.each(['pill', 'row'] as const)(
+    'clears the selected default through its %s',
+    async (surface) => {
+      transport.read.mockResolvedValue({ ...host(), defaultTuiAgent: 'claude' })
+      transport.mutate.mockResolvedValue({ ...host(), defaultTuiAgent: 'blank' })
+      render(pane(17))
+      await screen.findByDisplayValue('--host-marker')
+      fireEvent.click(
+        screen.getByRole('button', { name: surface === 'pill' ? 'Claude' : 'Default' })
+      )
+      await waitFor(() =>
+        expect(transport.mutate).toHaveBeenCalledWith(
+          { environmentId: 'ssh-host', pairingRevision: 17 },
+          { type: 'default', agent: 'blank' },
+          expect.any(AbortSignal)
+        )
+      )
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Claude' }).getAttribute('aria-pressed')).toBe(
+          'false'
+        )
+      )
+      expect(screen.getByRole('button', { name: 'Auto' }).getAttribute('aria-pressed')).toBe(
+        'false'
+      )
+      expect(screen.queryByRole('button', { name: 'No agent (blank terminal)' })).toBeNull()
+      transport.mutate.mockResolvedValue({ ...host(), defaultTuiAgent: 'claude' })
+      fireEvent.click(screen.getByRole('button', { name: 'Claude' }))
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Claude' }).getAttribute('aria-pressed')).toBe(
+          'true'
+        )
+      )
+      expect(transport.mutate).toHaveBeenLastCalledWith(
+        { environmentId: 'ssh-host', pairingRevision: 17 },
+        { type: 'default', agent: 'claude' },
+        expect.any(AbortSignal)
+      )
+    }
+  )
+
+  it('lets Auto toggle off into an empty selection', async () => {
+    transport.mutate.mockResolvedValue({ ...host(), defaultTuiAgent: 'blank' })
+    const { container } = render(pane(17))
+    await screen.findByDisplayValue('--host-marker')
+    fireEvent.click(screen.getByRole('button', { name: 'Auto' }))
+    await waitFor(() => expect(container.querySelector('[aria-pressed="true"]')).toBeNull())
+    expect(transport.mutate).toHaveBeenCalledWith(
+      { environmentId: 'ssh-host', pairingRevision: 17 },
+      { type: 'default', agent: 'blank' },
+      expect.any(AbortSignal)
+    )
+    transport.mutate.mockResolvedValue(host())
+    fireEvent.click(screen.getByRole('button', { name: 'Auto' }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Auto' }).getAttribute('aria-pressed')).toBe('true')
+    )
+  })
+
+  it('routes the pane to the chosen host and saves arguments without editing desktop defaults', async () => {
+    const desktop = createGlobalSettingsFixture({
+      activeRuntimeEnvironmentId: null,
+      agentDefaultArgs: { claude: '--desktop-marker' },
+      agentDefaultEnv: { claude: { DESKTOP_KEY: 'desktop-secret' } }
+    })
+    useAppStore.setState({
+      settings: desktop,
+      runtimeEnvironments: [
+        {
+          id: 'ssh-host',
+          name: 'SSH host',
+          createdAt: 1,
+          updatedAt: 1,
+          pairingRevision: 17,
+          lastUsedAt: null,
+          runtimeId: null,
+          endpoints: [],
+          preferredEndpointId: 'remote'
+        }
+      ]
+    })
+    const updateDesktop = vi.fn()
+    render(
+      <TooltipProvider>
+        <AgentsPane
+          settings={desktop}
+          updateSettings={updateDesktop}
+          hostScope={{
+            target: { kind: 'environment', environmentId: 'ssh-host' },
+            available: true
+          }}
+        />
+      </TooltipProvider>
+    )
+    const args = await screen.findByDisplayValue('--host-marker')
+    expect(
+      screen.getByText(
+        'Choose whether Orca launches agents with fewer permission prompts or with manual checks.'
+      )
+    ).toBeTruthy()
+    expect(screen.queryByDisplayValue('--desktop-marker')).toBeNull()
+    fireEvent.change(args, { target: { value: '--r10-marker' } })
+    fireEvent.blur(args)
+    await waitFor(() =>
+      expect(transport.mutate).toHaveBeenCalledWith(
+        { environmentId: 'ssh-host', pairingRevision: 17 },
+        { type: 'arguments', agent: 'claude', value: '--r10-marker' },
+        expect.any(AbortSignal)
+      )
+    )
+    expect(updateDesktop).not.toHaveBeenCalled()
+    expect(desktop.agentDefaultEnv?.claude?.DESKTOP_KEY).toBe('desktop-secret')
+    fireEvent.click(screen.getByRole('radio', { name: 'Manual' }))
+    await waitFor(() =>
+      expect(transport.mutate).toHaveBeenCalledWith(
+        { environmentId: 'ssh-host', pairingRevision: 17 },
+        { type: 'permissions', mode: 'manual' },
+        expect.any(AbortSignal)
+      )
+    )
+    expect(updateDesktop).not.toHaveBeenCalled()
+  })
+
   it('renders host arguments and masked values, then writes the selected host', async () => {
     const { container } = render(pane(17))
     await screen.findByDisplayValue('--host-marker')

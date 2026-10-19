@@ -5,7 +5,7 @@ import { parsePtySessionId } from '../../shared/pty-session-id-format'
 import { isFolderRepo } from '../../shared/repo-kind'
 import type { Repo } from '../../shared/repo-types'
 import { splitWorktreeId, worktreeIdComparisonKey } from '../../shared/worktree/id'
-import { getDaemonProvider } from '../daemon/daemon-init'
+import { getDaemonProvider } from '../daemon/daemon-provider-state'
 import { getAllDaemonAdapters, type DaemonProvider } from '../daemon/daemon-provider-routing'
 import type { SessionInfo } from '../daemon/types'
 import { isFolderWorkspaceIdForRepo } from '../ipc/worktrees/folder-workspace-model'
@@ -15,6 +15,7 @@ import { getLocalProjectWorktreeGitOptions } from '../project-runtime-git-option
 import { listLocalRepoWorktreesStrict } from '../repo-worktrees'
 import { listRegisteredPtys, registerPty } from './pty-registry'
 import { getVerifiedLocalFolderWorkspaceKeys } from './verified-local-folder-workspaces'
+import { errorMessage } from '../../shared/error-message'
 
 type HydrationStore = Store
 
@@ -58,10 +59,7 @@ export function hydrateLocalPtyRegistryAtBoot(store: HydrationStore): Promise<vo
       }
     })
     .catch((error) => {
-      console.warn(
-        '[memory] Boot-time pty-registry hydration failed:',
-        error instanceof Error ? error.message : String(error)
-      )
+      console.warn('[memory] Boot-time pty-registry hydration failed:', errorMessage(error))
     })
     .finally(() => {
       clearTimeout(deadline)
@@ -139,7 +137,7 @@ async function hydrateLocalPtyRegistry(
         complete = false
         console.warn(
           '[memory] Worktree enumeration failed during pty-registry hydration:',
-          result.reason instanceof Error ? result.reason.message : String(result.reason)
+          errorMessage(result.reason)
         )
         continue
       }
@@ -260,7 +258,7 @@ async function collectSessionInfos(
         throwIfSignalAborted(signal)
         console.warn(
           '[memory] listSessions failed for one adapter during hydration:',
-          error instanceof Error ? error.message : String(error)
+          errorMessage(error)
         )
         return { complete: false, sessions: [] }
       }

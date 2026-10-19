@@ -157,9 +157,9 @@ describe('collectPaneRectsInTreeOrder', () => {
     root.append(paneA, divider, inner)
     document.body.append(root)
 
-    paneA.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 200 }) as DOMRect
-    paneB.getBoundingClientRect = () => ({ x: 110, y: 0, width: 100, height: 95 }) as DOMRect
-    paneC.getBoundingClientRect = () => ({ x: 110, y: 105, width: 100, height: 95 }) as DOMRect
+    paneA.getBoundingClientRect = () => new DOMRect(0, 0, 100, 200)
+    paneB.getBoundingClientRect = () => new DOMRect(110, 0, 100, 95)
+    paneC.getBoundingClientRect = () => new DOMRect(110, 105, 100, 95)
 
     // Creation order C, A, B — tree order must still be A, B, C.
     const ordered = collectPaneRectsInTreeOrder([
@@ -193,9 +193,9 @@ describe('findSpatiallyAdjacentPaneId', () => {
     root.append(paneA, divider, inner)
     document.body.append(root)
 
-    paneA.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 200 }) as DOMRect
-    paneB.getBoundingClientRect = () => ({ x: 110, y: 0, width: 100, height: 95 }) as DOMRect
-    paneC.getBoundingClientRect = () => ({ x: 110, y: 105, width: 100, height: 95 }) as DOMRect
+    paneA.getBoundingClientRect = () => new DOMRect(0, 0, 100, 200)
+    paneB.getBoundingClientRect = () => new DOMRect(110, 0, 100, 95)
+    paneC.getBoundingClientRect = () => new DOMRect(110, 105, 100, 95)
 
     const panes = [
       { id: 1, container: paneA },
@@ -225,8 +225,8 @@ describe('applySpatialPaneFocusKey', () => {
     root.append(paneA, divider, paneB)
     document.body.append(root)
 
-    paneA.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 100 }) as DOMRect
-    paneB.getBoundingClientRect = () => ({ x: 110, y: 0, width: 100, height: 100 }) as DOMRect
+    paneA.getBoundingClientRect = () => new DOMRect(0, 0, 100, 100)
+    paneB.getBoundingClientRect = () => new DOMRect(110, 0, 100, 100)
 
     const setActivePane = vi.fn()
     const event = {
@@ -260,15 +260,7 @@ describe('applySpatialPaneFocusKey', () => {
 })
 
 describe('claimSpatialPaneFocusOrWorktreeHistory', () => {
-  function splitPair(): {
-    root: HTMLDivElement
-    event: { preventDefault: ReturnType<typeof vi.fn>; stopImmediatePropagation: ReturnType<typeof vi.fn> }
-    manager: {
-      getPanes: () => { id: number; container: HTMLElement }[]
-      getActivePane: () => { id: number }
-      setActivePane: ReturnType<typeof vi.fn>
-    }
-  } {
+  function splitPair() {
     const root = document.createElement('div')
     root.className = 'pane-split is-vertical'
     const paneA = document.createElement('div')
@@ -279,8 +271,8 @@ describe('claimSpatialPaneFocusOrWorktreeHistory', () => {
     paneB.className = 'pane'
     root.append(paneA, divider, paneB)
     document.body.append(root)
-    paneA.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 100 }) as DOMRect
-    paneB.getBoundingClientRect = () => ({ x: 110, y: 0, width: 100, height: 100 }) as DOMRect
+    paneA.getBoundingClientRect = () => new DOMRect(0, 0, 100, 100)
+    paneB.getBoundingClientRect = () => new DOMRect(110, 0, 100, 100)
     return {
       root,
       event: { preventDefault: vi.fn(), stopImmediatePropagation: vi.fn() },
@@ -299,9 +291,9 @@ describe('claimSpatialPaneFocusOrWorktreeHistory', () => {
     const { root, event, manager } = splitPair()
     const navigateWorktreeHistory = vi.fn()
 
-    expect(claimSpatialPaneFocusOrWorktreeHistory(event, manager, 'right', navigateWorktreeHistory)).toBe(
-      true
-    )
+    expect(
+      claimSpatialPaneFocusOrWorktreeHistory(event, manager, 'right', navigateWorktreeHistory)
+    ).toBe(true)
     expect(manager.setActivePane).toHaveBeenCalledWith(2, { focus: true })
     expect(navigateWorktreeHistory).not.toHaveBeenCalled()
     expect(event.preventDefault).toHaveBeenCalledTimes(1)
@@ -312,9 +304,9 @@ describe('claimSpatialPaneFocusOrWorktreeHistory', () => {
     const { root, event, manager } = splitPair()
     const navigateWorktreeHistory = vi.fn()
 
-    expect(claimSpatialPaneFocusOrWorktreeHistory(event, manager, 'left', navigateWorktreeHistory)).toBe(
-      true
-    )
+    expect(
+      claimSpatialPaneFocusOrWorktreeHistory(event, manager, 'left', navigateWorktreeHistory)
+    ).toBe(true)
     expect(manager.setActivePane).not.toHaveBeenCalled()
     expect(navigateWorktreeHistory).toHaveBeenCalledWith('back')
     expect(event.preventDefault).toHaveBeenCalledTimes(1)
@@ -333,9 +325,9 @@ describe('claimSpatialPaneFocusOrWorktreeHistory', () => {
     const { root, event, manager } = splitPair()
     const navigateWorktreeHistory = vi.fn()
 
-    expect(claimSpatialPaneFocusOrWorktreeHistory(event, manager, 'up', navigateWorktreeHistory)).toBe(
-      false
-    )
+    expect(
+      claimSpatialPaneFocusOrWorktreeHistory(event, manager, 'up', navigateWorktreeHistory)
+    ).toBe(false)
     expect(navigateWorktreeHistory).not.toHaveBeenCalled()
     expect(event.preventDefault).not.toHaveBeenCalled()
     root.remove()

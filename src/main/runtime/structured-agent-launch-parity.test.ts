@@ -7,8 +7,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GlobalSettings } from '../../shared/global-settings-types'
-import type * as ProcessHostModule from '../../shared/child-process/run-process'
-import type { ProcessSpec } from '../../shared/child-process/process-spec'
+import type * as ProcessHostModule from '@orca/process-host'
+import type { ProcessSpec } from '@orca/process-host/process-spec'
 import type * as AcpAdapterModule from '../acp/acp-structured-session-adapter'
 import type * as ClaudeAdapterModule from '../claude/claude-structured-session-adapter'
 import type * as CodexAdapterModule from '../codex/codex-structured-session-adapter'
@@ -34,7 +34,7 @@ const capture = vi.hoisted(() => {
 /** Thrown in place of a real child: the start ends right where the process would begin. */
 class SpawnCaptured extends Error {}
 
-vi.mock('../../shared/child-process/run-process', async (importOriginal) => {
+vi.mock('@orca/process-host', async (importOriginal) => {
   const actual = await importOriginal<typeof ProcessHostModule>()
   return {
     ...actual,
@@ -131,7 +131,10 @@ import {
   AGENT_HOOK_RUNTIME_ENV_KEYS,
   ORCA_AGENT_SESSION_CALLER_ENV_KEYS
 } from '../ipc/pty/host-env/spawn-env-keys'
-import { NATIVE_CHAT_VISUALS_DIR_ENV } from '../native-chat/native-chat-visuals-delivery'
+import {
+  LEGACY_NATIVE_CHAT_VISUALS_DIR_ENV,
+  NATIVE_CHAT_SCRATCH_DIR_ENV
+} from '../native-chat/native-chat-visuals-delivery'
 import type { StructuredAgentSessionAcquireInput } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import type { JournalHostDatabase } from '../native-chat/agent-session-journal/journal-host-database'
@@ -308,7 +311,8 @@ function inheritedEnvironment(): Record<string, string> {
     [ORCA_SCRUB_SAFE_LAUNCH_ENV]: 'parent-scrub-safe-launch',
     ORCA_TERMINAL_HANDLE: 'term_parent',
     ORCA_AGENT_SESSION_SPAWN_TOKEN: 'parent-spawn-token',
-    [NATIVE_CHAT_VISUALS_DIR_ENV]: '/parent/visuals',
+    [NATIVE_CHAT_SCRATCH_DIR_ENV]: '/parent/scratch',
+    [LEGACY_NATIVE_CHAT_VISUALS_DIR_ENV]: '/parent/visuals',
     ORCA_CLI_COMMAND: '/parent/orca',
     ORCA_CLI_BIN_DIR: '/parent/bin',
     ORCA_USER_DATA_PATH: '/parent/user-data',
@@ -620,7 +624,7 @@ describe.skipIf(process.platform === 'win32')('native-chat launch parity', () =>
         structuredWorkerIdentities.register({
           handle: workerHandle,
           sessionId,
-          agent: launch.agent === 'claude' || launch.agent === 'codex' ? launch.agent : null,
+          agent: launch.agent,
           paneKey: mintStructuredWorkerPaneKey(sessionId),
           processIncarnation: structuredWorkerProcessIncarnation(sessionId),
           worktreeId: WORKSPACE_ID,
@@ -638,7 +642,7 @@ describe.skipIf(process.platform === 'win32')('native-chat launch parity', () =>
         },
         fence: 1,
         spawnToken: SPAWN_TOKEN,
-        // Claude and Codex chats run their own mode, which the host hands the start.
+        // Chats run their own mode, which the host hands the start.
         ...(launch.configured && agentChatPermissionModes(launch.agent)
           ? { permissionMode: 'full-access' as const }
           : {}),

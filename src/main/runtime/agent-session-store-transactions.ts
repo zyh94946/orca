@@ -12,7 +12,12 @@ import type { JournalOperationReceipt } from '../native-chat/agent-session-journ
 import { journalOpenRefusalError } from '../native-chat/agent-session-journal/journal-open-failure'
 import { AgentSessionJournalError } from '../native-chat/agent-session-journal/journal-write-guards'
 import type { AgentSessionStoreState } from './agent-session-store-state'
-import { writeAgentSessionStoreRows } from './agent-session-record-rows'
+import {
+  insertAgentSessionOperationRowsIfAbsent,
+  writeAgentSessionStoreRows
+} from './agent-session-record-rows'
+import { readCommandReceipt } from '../native-chat/agent-session-journal/command-receipt-table'
+import type { CommandReceiptScope } from '../native-chat/agent-session-journal/command-receipt-schema'
 import {
   agentSessionRuntimeIncarnation,
   attributeAgentSessionRuntime
@@ -119,6 +124,10 @@ export class AgentSessionStoreTransactions {
     return this.journalDatabase.readOnly
   }
 
+  readCommandReceipt(scope: CommandReceiptScope, operationId: string) {
+    return readCommandReceipt(this.journalDatabase.db, scope, operationId)
+  }
+
   /**
    * `apply` changes only the draft it is given. On a database a newer Orca wrote every transaction
    * is refused, except one marked `inMemoryWhenReadOnly`: it is published without a write, for a
@@ -138,7 +147,10 @@ export class AgentSessionStoreTransactions {
    * commits. Exact without the queue: `write` and `committed` run in one synchronous step, so no
    * store transaction can commit between the draft's staging and its adoption.
    */
-  receipt(apply: (draft: AgentSessionStoreState) => void): JournalOperationReceipt {
+  receipt(
+    apply: (draft: AgentSessionStoreState) => void,
+    options: { insertOperationsIfAbsent?: true } = {}
+  ): JournalOperationReceipt {
     let staged: StagedStoreTransaction<void> | null = null
     return {
       write: (db) => {
@@ -148,7 +160,12 @@ export class AgentSessionStoreTransactions {
         staged = this.stage(apply)
         const writes = staged.writes
         if (writes) {
-          writeAgentSessionStoreRows(db, writes)
+          // TEMPORARY: ledger co-write preserves cross-family identity until every mutation uses receipts.
+          if (options.insertOperationsIfAbsent) {
+            insertAgentSessionOperationRowsIfAbsent(db, writes.operations.upsert)
+          } else {
+            writeAgentSessionStoreRows(db, writes)
+          }
         }
       },
       committed: () => {
@@ -156,6 +173,16 @@ export class AgentSessionStoreTransactions {
         staged = null
       }
     }
+  }
+
+  /** A receipt no journal write carries (a command that changed nothing), in its own transaction. */
+  commitReceipt(receipt: JournalOperationReceipt): Promise<void> {
+    const run = this.queue.then(() => {
+      this.journalDatabase.transaction((db) => receipt.write(db))
+      receipt.committed()
+    })
+    this.queue = run.catch(() => {})
+    return run
   }
 
   private commit<T>(apply: (draft: AgentSessionStoreState) => T, inMemoryWhenReadOnly: boolean): T {

@@ -4,15 +4,16 @@ import { buildAgentResumeStartupPlan } from '@/lib/tui-agent-startup'
 import { tuiAgentToAgentKind } from '@/lib/telemetry'
 import { persistAgentLaunchTabOrder } from '@/lib/launch-agent-tab-order'
 import {
+  resolveSshHostReportedPlatform,
   resolveAgentResumeLaunchTarget,
   type AgentResumeLaunchTarget
 } from '@/lib/agent-resume-launch-target'
-import { getExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
-import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
 import {
-  resolveTuiAgentLaunchArgs,
-  resolveTuiAgentLaunchEnv
-} from '../../../shared/tui-agent-launch-defaults'
+  getExecutionHostIdForWorktree,
+  getExplicitRuntimeEnvironmentIdForWorktree
+} from '@/lib/worktree-runtime-owner'
+import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
+import { resolveResumeLaunchRecipe } from '../../../shared/tui-agent-launch-defaults'
 import type { SleepingAgentSessionRecord } from '../../../shared/agent-session-resume'
 import { translate } from '@/i18n/i18n'
 
@@ -33,12 +34,18 @@ function getResumeLaunchTarget(worktreeId: string): AgentResumeLaunchTarget {
   const worktree = state.getKnownWorktreeById(worktreeId)
   const repo = worktree ? state.repos.find((entry) => entry.id === worktree.repoId) : null
   // The resume tab is created without a shell override, so the global Windows shell wins.
+  const executionHostId = getExecutionHostIdForWorktree(state, worktreeId)
   return resolveAgentResumeLaunchTarget({
     projectRuntime: getLocalProjectExecutionRuntimeContext(state, worktreeId),
     connectionId: repo?.connectionId,
-    executionHostId: getExecutionHostIdForWorktree(state, worktreeId),
+    executionHostId,
     worktreePath: worktree?.path,
-    terminalWindowsShell: state.settings?.terminalWindowsShell
+    terminalWindowsShell: state.settings?.terminalWindowsShell,
+    remotePlatform: resolveSshHostReportedPlatform(
+      state,
+      executionHostId,
+      getExplicitRuntimeEnvironmentIdForWorktree(state, worktreeId)
+    )
   })
 }
 
@@ -55,18 +62,7 @@ export function launchSleepingAgentSession(
     agent: record.agent,
     providerSession: record.providerSession,
     cmdOverrides: state.settings?.agentCmdOverrides ?? {},
-    agentArgs:
-      launchConfig !== undefined
-        ? launchConfig.agentArgs
-        : resolveTuiAgentLaunchArgs(record.agent, state.settings?.agentDefaultArgs),
-    agentEnv:
-      launchConfig !== undefined
-        ? launchConfig.agentEnv
-        : resolveTuiAgentLaunchEnv(record.agent, state.settings?.agentDefaultEnv),
-    ...(launchConfig?.agentCommand ? { agentCommand: launchConfig.agentCommand } : {}),
-    ...(launchConfig?.ompResumeFilePath
-      ? { ompResumeFilePath: launchConfig.ompResumeFilePath }
-      : {}),
+    ...resolveResumeLaunchRecipe(launchConfig),
     platform: resumeTarget.platform,
     shell: resumeTarget.shell
   })

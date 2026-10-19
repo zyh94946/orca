@@ -1,12 +1,27 @@
 import { createElement } from 'react'
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AgentJournalToolCallItem } from '../../../src/shared/agent-session-journal-types'
+import type {
+  AgentJournalStatusItem,
+  AgentJournalToolCallItem
+} from '../../../src/shared/agent-session-journal-types'
 import { MAX_TOOL_DETAIL_LENGTH } from '../../../src/shared/native-chat-tool-summary'
 import { projectStructuredItemToNativeChat } from '../../../src/shared/structured-agent-session-projection'
-import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
+import {
+  NATIVE_CHAT_INTERRUPTED_STATUS_TEXT,
+  type NativeChatMessage
+} from '../../../src/shared/native-chat-types'
 import { AGENT_SESSION_HOST_STATUS_COPY } from '../../../src/shared/agent-session-host-status-rows'
-import { colors } from '../theme/mobile-theme'
+import {
+  agentSessionFailureFact,
+  readProviderRetry
+} from '../../../src/shared/agent-session-failure'
+import { agentSessionFailureWords } from '../../../src/shared/agent-session-failure-words'
+import { structuredQuestionTranscript } from '../../../src/shared/structured-agent-question-projection'
+import type { NativeChatResolvedPrompt } from '../../../src/shared/native-chat-resolution-receipt'
+import { colors, typography } from '../theme/mobile-theme'
+import { ANSWERED_PROMPT_ITEMS } from './mobile-native-chat-answered-prompts.test-fixture'
+import { MobileNativeChatRowOverlaysContext } from './mobile-native-chat-row-overlays'
 import { styles } from './mobile-native-chat-message-styles'
 
 vi.mock('react-native', async () => {
@@ -37,6 +52,9 @@ vi.mock('react-native', async () => {
 })
 vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn() }))
 vi.mock('lucide-react-native', () => ({
+  AlertCircle: 'AlertCircle',
+  MessageSquareMore: 'MessageSquareMore',
+  AlertTriangle: 'AlertTriangle',
   ArrowUp: 'ArrowUp',
   Brain: 'Brain',
   ChevronDown: 'ChevronDown',
@@ -84,6 +102,11 @@ describe('MobileNativeChatMessage', () => {
       } | null
       onToggleTurn?: () => void
       reasoningIsLive?: boolean
+      unsentNotice?: string
+      receipt?: NativeChatResolvedPrompt
+      userMessageOpen?: boolean
+      onToggleUserMessage?: (messageId: string) => void
+      awaiting?: boolean
     } = {}
   ): ReactTestRenderer {
     act(() => {
@@ -92,6 +115,10 @@ describe('MobileNativeChatMessage', () => {
     return renderer!
   }
 
+  const markdownIn = (node: ReactTestInstance): string[] =>
+    node
+      .findAll((child) => String(child.type) === 'MobileMarkdown')
+      .map((markdown) => markdown.props.content)
   const textIn = (node: ReactTestInstance): string[] =>
     node.findAllByType('Text' as never).map((text) => String(text.children.join('')))
 
@@ -113,10 +140,251 @@ describe('MobileNativeChatMessage', () => {
     expect(tree.root.findAll((node) => String(node.type) === 'MobileMarkdown')).toHaveLength(0)
     expect(
       tree.root.findAll(
-        (node) => String(node.type) === 'View' && node.props.style === styles.contextBoundary
+        (node) =>
+          String(node.type) === 'View' && node.props.accessibilityLabel === 'Context cleared'
       )
     ).toHaveLength(1)
-    expect(styles.contextBoundary.borderTopColor).toBe(colors.borderSubtle)
+  })
+
+  const words = (node: ReactTestInstance): string[] =>
+    node.children.flatMap((child) => (typeof child === 'string' ? [child] : words(child)))
+
+  it('draws an answered approval and question as their receipts', () => {
+    const { messages, receipts } = structuredQuestionTranscript(ANSWERED_PROMPT_ITEMS)
+    const drawn = messages.flatMap((message) => {
+      const receipt = receipts.get(message.id)
+      return receipt ? [words(render(message, { receipt }).root).join('')] : []
+    })
+    // Each ends with when it was answered, in the device's own clock.
+    expect(drawn).toEqual([
+      expect.stringMatching(
+        /^Bash\{[\s\S]*echo receipt-check[\s\S]*\}AllowResolved · Answered on desktop-renderer\d{1,2}:\d{2}(\s[AP]M)?$/
+      ),
+      expect.stringMatching(
+        /^Asked: Do you prefer tea or coffee\?CoffeeResolved · Answered on desktop-renderer\d{1,2}:\d{2}(\s[AP]M)?$/
+      )
+    ])
+  })
+
+  it('zooms a receipt with the chat, as its words were before it became a receipt', () => {
+    const { messages, receipts } = structuredQuestionTranscript(ANSWERED_PROMPT_ITEMS)
+    const question = messages.find((message) => receipts.get(message.id)?.kind === 'question')!
+    const tree = render(question, { receipt: receipts.get(question.id), fontScale: 1.5 })
+    const sizeOf = (first: string) =>
+      Object.assign(
+        {},
+        ...[
+          tree.root.find((node) => String(node.type) === 'Text' && node.children[0] === first).props
+            .style
+        ].flat()
+      ).fontSize
+    expect(sizeOf('Asked:')).toBe(typography.bodySize * 1.5)
+    expect(sizeOf('Coffee')).toBe(typography.metaSize * 1.5)
+    expect(tree.root.find((node) => String(node.type) === 'MessageSquareMore').props.size).toBe(
+      15 * 1.5
+    )
+    const time = tree.root.find(
+      (node) => String(node.type) === 'Text' && node.props.accessibilityLabel
+    )
+    expect(Object.assign({}, ...[time.props.style].flat()).fontSize).toBe(typography.metaSize * 1.5)
+  })
+
+  it("lists a group's questions once nobody can answer them here, as desktop does", () => {
+    const group = (state: 'pending' | 'cancelled'): NativeChatResolvedPrompt => ({
+      kind: 'question',
+      question: '2 grouped questions from Claude',
+      options: [],
+      questions: [
+        { id: 'q1', question: 'Which targets?', multiSelect: true, options: [] },
+        { id: 'q2', question: 'Proceed?', multiSelect: false, options: [] }
+      ],
+      resolution: { state, selectedOptionId: null, resolvedBy: null, resolvedAt: null }
+    })
+    const row: NativeChatMessage = {
+      id: 'grouped',
+      role: 'system',
+      blocks: [{ type: 'text', text: '2 grouped questions from Claude' }],
+      timestamp: 1,
+      source: 'transcript'
+    }
+    expect(words(render(row, { receipt: group('cancelled') }).root).join('')).toBe(
+      'Asked: 2 questions1. Which targets?2. Proceed?Cancelled'
+    )
+    expect(words(render(row, { receipt: group('pending'), awaiting: false }).root).join('')).toBe(
+      'Asked: 2 questions1. Which targets?2. Proceed?'
+    )
+    // While the host waits, the answer card shows them.
+    expect(words(render(row, { receipt: group('pending') }).root).join('')).toBe(
+      'Awaiting user input: 2 questions'
+    )
+  })
+
+  it('draws a pending question the host no longer waits on as asked, as desktop does', () => {
+    // The same journal, with the agent ended before the question was answered.
+    const { messages, receipts } = structuredQuestionTranscript(
+      ANSWERED_PROMPT_ITEMS.map((item) =>
+        item.body.kind === 'question'
+          ? {
+              ...item,
+              body: {
+                ...item.body,
+                resolution: {
+                  state: 'pending',
+                  selectedOptionId: null,
+                  resolvedBy: null,
+                  resolvedAt: null
+                }
+              }
+            }
+          : item
+      )
+    )
+    const row = messages.find((message) => receipts.get(message.id)?.kind === 'question')!
+    const receipt = receipts.get(row.id)
+    expect(words(render(row, { receipt }).root).join('')).toBe(
+      'Awaiting user input: Do you prefer tea or coffee?'
+    )
+    expect(words(render(row, { receipt, awaiting: false }).root).join('')).toBe(
+      'Asked: Do you prefer tea or coffee?'
+    )
+  })
+
+  it('shows when your message and the reply were written, beside copy, zoomed with the chat, as desktop does', () => {
+    const at = new Date(2026, 9, 15, 15, 42).getTime()
+    const timeIn = (message: NativeChatMessage) =>
+      render(message, { fontScale: 1.5 })
+        .root.findAll((node) => String(node.type) === 'Text' && node.props.accessibilityLabel)
+        .map((node) => [
+          node.children.join(''),
+          Object.assign({}, ...[node.props.style].flat()).fontSize
+        ])
+    const shown = [[expect.stringMatching(/^(3:42\sPM|15:42)$/), typography.metaSize * 1.5]]
+    expect(timeIn({ ...userMessage([{ type: 'text', text: 'ship it' }]), timestamp: at })).toEqual(
+      shown
+    )
+    expect(timeIn({ ...toolMessage([{ type: 'text', text: 'Shipped.' }]), timestamp: at })).toEqual(
+      shown
+    )
+    expect(timeIn(userMessage([{ type: 'text', text: 'ship it' }]))).toEqual([])
+  })
+
+  it('draws a question call as the question awaited, then as asked, never as a raw tool line', () => {
+    // A Claude terminal chat's AskUserQuestion call and its answer, as the host decoded them.
+    const ask = {
+      type: 'tool-call' as const,
+      name: 'AskUserQuestion',
+      input: {
+        questions: [
+          {
+            question: 'Do you prefer red or blue?',
+            header: 'Color',
+            multiSelect: false,
+            options: [
+              { label: 'Red', description: 'You prefer red.' },
+              { label: 'Blue', description: 'You prefer blue.' }
+            ]
+          }
+        ]
+      },
+      callId: 'toolu_01D2nEEE5zhVRVmAvtmLBz5T'
+    }
+    const call = toolMessage([ask])
+    const answer = {
+      type: 'tool-result' as const,
+      output:
+        'Your questions have been answered: "Do you prefer red or blue?"="Blue". You can now continue with these answers in mind.',
+      callId: 'toolu_01D2nEEE5zhVRVmAvtmLBz5T'
+    }
+    expect(words(render(call).root).join('')).toBe(
+      'Awaiting user input: Do you prefer red or blue?'
+    )
+    expect(words(render({ ...call, blocks: [...call.blocks, answer] }).root).join('')).toBe(
+      'Asked: Do you prefer red or blue?'
+    )
+    // A native chat asks desktop's selector.
+    const live = { structuredActivityUi: true, activeTurnIsWorking: true }
+    expect(words(render(toolMessage([{ ...ask, state: 'running' }]), live).root).join('')).toBe(
+      'Awaiting user input: Do you prefer red or blue?'
+    )
+    expect(words(render(toolMessage([{ ...ask, state: 'completed' }]), live).root).join('')).toBe(
+      'Asked: Do you prefer red or blue?'
+    )
+  })
+
+  // Each row as its host writes it: Claude's API retry and sign-in rows use these shared words.
+  const statusRow = (body: AgentJournalStatusItem): NativeChatMessage =>
+    projectStructuredItemToNativeChat({
+      itemId: 'status',
+      revision: 1,
+      sequence: 2,
+      observedAt: 2,
+      body
+    })!
+  it.each([
+    [
+      'an API retry as a warning',
+      statusRow({
+        kind: 'status',
+        tone: 'warning',
+        ...agentSessionFailureWords(
+          agentSessionFailureFact('providerRetrying', {
+            retry: readProviderRetry({
+              error: 'overloaded',
+              status: 529,
+              attempt: 2,
+              maxRetries: 10
+            })
+          }),
+          { surface: 'row', agentName: 'Claude' }
+        )
+      }),
+      colors.statusAmber
+    ],
+    [
+      'a sign-in failure as an error',
+      statusRow({
+        kind: 'status',
+        tone: 'error',
+        ...agentSessionFailureWords(agentSessionFailureFact('notSignedIn'), {
+          agentName: 'Claude',
+          provider: 'claude',
+          surface: 'row'
+        })
+      }),
+      colors.statusRed
+    ],
+    [
+      'an interruption as a faint aside',
+      {
+        id: 'interrupted',
+        role: 'system',
+        blocks: [{ type: 'text', text: NATIVE_CHAT_INTERRUPTED_STATUS_TEXT }],
+        timestamp: 1,
+        source: 'transcript'
+      } satisfies NativeChatMessage,
+      colors.textMuted
+    ]
+  ])('draws %s, never as the agent speaking', (_, message, color) => {
+    const tree = render(message)
+    expect(tree.root.findAll((node) => String(node.type) === 'MobileMarkdown')).toHaveLength(0)
+    const text = tree.root.find(
+      (node) => String(node.type) === 'Text' && node.props.selectable === true
+    )
+    expect(text.props.children).toBe(message.blocks.find((block) => block.type === 'text')?.text)
+    expect(Object.assign({}, ...text.props.style)).toMatchObject({ color })
+  })
+
+  it('draws a compaction as a divider, not as a reply', () => {
+    const tree = render(
+      statusRow({ kind: 'status', text: 'Context compacted', presentation: 'compaction' })
+    )
+    expect(tree.root.findAll((node) => String(node.type) === 'MobileMarkdown')).toHaveLength(0)
+    expect(
+      tree.root.findAll(
+        (node) =>
+          String(node.type) === 'View' && node.props.accessibilityLabel === 'Context compacted'
+      )
+    ).toHaveLength(1)
   })
 
   it.each(['system', 'user'] as const)(
@@ -134,12 +402,16 @@ describe('MobileNativeChatMessage', () => {
         { fontScale: 1.5 }
       )
       expect(tree.root.findAll((node) => String(node.type) === 'MobileMarkdown')).toHaveLength(0)
-      const text = tree.root.find((node) => String(node.type) === 'Text')
+      const text = tree.root.find(
+        (node) => String(node.type) === 'Text' && node.props.selectable === true
+      )
       expect(text.props.children).toBe(AGENT_SESSION_HOST_STATUS_COPY['history-item-too-large'])
       expect(text.props.selectable).toBe(true)
+      // Zoomed 1.5× with its leading zoomed too, so wrapped lines never overlap.
       expect(Object.assign({}, ...text.props.style)).toMatchObject({
         color: colors.textMuted,
-        fontSize: 25.5
+        fontSize: 25.5,
+        lineHeight: 34.5
       })
     }
   )
@@ -168,6 +440,40 @@ describe('MobileNativeChatMessage', () => {
     expect(rows.some((row) => row.props.style.includes(styles.rowUser))).toBe(false)
   })
 
+  describe('a message the host recorded and did not deliver', () => {
+    const notSent = { ...userMessage([{ type: 'text', text: 'fix it' }]), unsent: true as const }
+    const lineIn = (tree: ReactTestRenderer) =>
+      tree.root.findAll(
+        (node) => String(node.type) === 'Text' && node.props.style === styles.unsentNotice
+      )
+
+    it('says why under the bubble, and draws no line without a reason, as the desktop', () => {
+      const tree = render(notSent, { unsentNotice: 'Claude is not signed in.' })
+      expect(markdownIn(tree.root)).toEqual(['fix it'])
+      expect(textIn(tree.root)).toEqual(['Claude is not signed in.'])
+      expect(lineIn(render(notSent))).toHaveLength(0)
+    })
+
+    it("draws the line under another agent's message too", () => {
+      const fromAgent: NativeChatMessage = {
+        ...notSent,
+        from: {
+          kind: 'agent',
+          senders: [
+            {
+              party: { address: 'term_a', terminalHandle: 'term_a', orcaSessionId: null },
+              name: 'Coder'
+            }
+          ],
+          orchestration: null
+        }
+      }
+      expect(
+        lineIn(render(fromAgent, { unsentNotice: 'Your message was not sent.' }))
+      ).toHaveLength(1)
+    })
+  })
+
   it('preserves an ordinary assistant answer without interpreting its text as a host notice', () => {
     const tree = render(toolMessage([{ type: 'text', text: 'provider fallback' }]))
     expect(tree.root.find((node) => String(node.type) === 'MobileMarkdown').props.content).toBe(
@@ -179,7 +485,68 @@ describe('MobileNativeChatMessage', () => {
     const tree = render(userMessage([{ type: 'image-ref', url: 'file:///a.jpg', alt: 'a photo' }]))
     const image = tree.root.findByType('Image' as never)
     expect(image.props.source).toEqual({ uri: 'file:///a.jpg' })
-    expect(image.props.accessibilityLabel).toBe('a photo')
+    expect(image.parent?.props).toMatchObject({
+      accessibilityRole: 'imagebutton',
+      accessibilityLabel: 'a photo'
+    })
+  })
+
+  it('opens an attachment full size when tapped', () => {
+    const openImage = vi.fn()
+    act(() => {
+      renderer = create(
+        createElement(
+          MobileNativeChatRowOverlaysContext.Provider,
+          { value: { openImage, openActions: vi.fn() } },
+          createElement(MobileNativeChatMessage, {
+            message: userMessage([{ type: 'image-ref', url: 'file:///a.jpg', alt: 'a photo' }])
+          })
+        )
+      )
+    })
+    act(() => renderer!.root.findByProps({ accessibilityRole: 'imagebutton' }).props.onPress())
+    expect(openImage).toHaveBeenCalledWith({ uri: 'file:///a.jpg', label: 'a photo' })
+  })
+
+  it('draws a picture-only message with nothing else in its bubble, so no gap sits under it', () => {
+    render(userMessage([{ type: 'image-ref', url: 'file:///a.jpg', alt: 'a photo' }]))
+    const bubble = renderer!.root.find(
+      (node) =>
+        String(node.type) === 'View' && [node.props.style].flat().includes(styles.userBubble)
+    )
+    expect(bubble.findAll((node) => node !== bubble && String(node.type) === 'View')).toHaveLength(
+      0
+    )
+  })
+
+  it('folds a long message of yours until opened, and the transcript keeps it open', () => {
+    const long = Array.from({ length: 12 }, (_, line) => `line ${line + 1}`).join('\n')
+    const message = userMessage([{ type: 'text', text: long }])
+    const onToggleUserMessage = vi.fn()
+    const clips = (tree: ReactTestRenderer) =>
+      tree.root.findAll(
+        (node) => String(node.type) === 'View' && node.props.style?.overflow === 'hidden'
+      )
+    const folded = render(message, { onToggleUserMessage })
+    expect(clips(folded)).toHaveLength(1)
+    // Native layout fits the cut text to the clip, so it measures at the fold: it stays folded and
+    // offers the rest, rather than unfolding to measure taller and folding again.
+    act(() =>
+      clips(folded)[0]!
+        .find((node) => node.props.onLayout !== undefined)
+        .props.onLayout({ nativeEvent: { layout: { height: 190 } } })
+    )
+    expect(clips(folded)).toHaveLength(1)
+    act(() =>
+      folded.root
+        .find(
+          (node) => String(node.type) === 'Pressable' && textIn(node).includes('Show full message')
+        )
+        .props.onPress()
+    )
+    expect(onToggleUserMessage).toHaveBeenCalledWith('u1')
+    // The list recycles rows; the transcript's state draws it open again.
+    expect(clips(render(message, { userMessageOpen: true, onToggleUserMessage }))).toHaveLength(0)
   })
 
   it('prefers the url over the path when both are present', () => {
@@ -201,12 +568,15 @@ describe('MobileNativeChatMessage', () => {
     expect(texts.some((text) => text.includes('/tmp/host.png'))).toBe(true)
   })
 
-  it('makes user message text selectable', () => {
-    const tree = render(userMessage([{ type: 'text', text: 'Prompt I typed' }]))
-    const text = tree.root
-      .findAllByType('Text' as never)
-      .find((node) => String(node.children.join('')) === 'Prompt I typed')
-    expect(text?.props.selectable).toBe(true)
+  it('draws your message as selectable Markdown in the bubble’s dark-on-light colours', () => {
+    const tree = render(userMessage([{ type: 'text', text: '**Fix** `src/a.ts`' }]))
+    const markdown = tree.root.findByType('MobileMarkdown' as never)
+    expect(markdown.props).toMatchObject({
+      content: '**Fix** `src/a.ts`',
+      tone: 'onBright',
+      rangeSelectable: true
+    })
+    expect(markdown.props.renderVisual).toBeUndefined()
   })
 
   it('routes assistant prose through selectable Markdown', () => {
@@ -425,7 +795,8 @@ describe('MobileNativeChatMessage', () => {
       const tree = render(userMessage([{ type: 'text', text: 'go' }]), {
         structuredActivityUi: true
       })
-      expect(textIn(tree.root)).toEqual(['go'])
+      expect(markdownIn(tree.root)).toEqual(['go'])
+      expect(textIn(tree.root)).toEqual([])
     })
   })
 

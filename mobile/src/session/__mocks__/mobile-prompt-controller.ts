@@ -66,7 +66,9 @@ vi.mock('lucide-react-native', () =>
   )
 )
 vi.mock('../MobileNativeChatMessage', () => ({ MobileNativeChatMessage: 'ChatMessage' }))
+vi.mock('../MobileNativeChatRowOverlaysHost', () => ({ MobileNativeChatRowOverlaysHost: 'View' }))
 vi.mock('../MobileNativeChatVisual', () => ({ useMobileNativeChatVisualRenderer: () => null }))
+vi.mock('../../platform/use-reduced-motion', () => ({ useReducedMotionEnabled: () => null }))
 vi.mock('../MobileNativeChatLiveLine', () => ({ MobileNativeChatLiveLine: 'LiveStatus' }))
 vi.mock('../MobileNativeChatAsk', () => ({ MobileNativeChatAsk: 'ChatAsk' }))
 vi.mock('../MobileAgentWorkingIndicator', () => ({
@@ -105,9 +107,9 @@ const structured = {
 vi.mock('../use-mobile-session-view-mode', () => ({
   useMobileSessionViewMode: () => ({
     isTabChatView: () => visible.value,
-    toggleTabChatView: () => {
-      visible.value = !visible.value
-    }
+    setTabView: (_tabId: string, view: string) =>
+      Object.assign(visible, { value: view === 'chat' }),
+    toggleTabChatView: () => Object.assign(visible, { value: !visible.value })
   })
 }))
 vi.mock('../use-mobile-native-chat-session-lane', () => ({
@@ -232,6 +234,7 @@ function Harness(props: HarnessProps) {
     sendErrorMessage: null,
     onClearSendError: vi.fn(),
     sendSurfaceId: 'surface',
+    sessionId: null,
     getSendCompletionGeneration: () => 0,
     keyboardInset: 0
   })

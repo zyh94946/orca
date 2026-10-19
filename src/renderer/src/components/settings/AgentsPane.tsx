@@ -31,6 +31,7 @@ import {
 } from './agent-availability-settings'
 import { AgentAvailabilityControl } from './AgentCatalogRow'
 import { AgentLaunchSettingsSection } from './AgentLaunchSettingsSection'
+import type { SettingsHostScope } from './settings-host-scope'
 
 export {
   buildAgentAvailabilitySettingsUpdate,
@@ -45,6 +46,8 @@ type AgentSettingProps = {
 }
 
 type AgentsPaneProps = AgentSettingProps & {
+  /** Host whose agent launch settings and detected agents the pane shows. */
+  hostScope: SettingsHostScope
   wslSupportedPlatform?: boolean
   wslAvailable?: boolean
   wslDistros?: string[]
@@ -127,6 +130,7 @@ export function AgentPermissionsSetting({
 export function AgentsPane({
   settings,
   updateSettings,
+  hostScope,
   wslSupportedPlatform,
   wslAvailable,
   wslDistros,
@@ -138,7 +142,7 @@ export function AgentsPane({
       <AgentLaunchSettingsSection
         settings={settings}
         updateSettings={updateSettings}
-        environmentId={settings.activeRuntimeEnvironmentId?.trim() || null}
+        hostScope={hostScope}
         renderPermissions={renderAgentPermissions}
       />
       <section className="space-y-8">

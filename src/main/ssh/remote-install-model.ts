@@ -19,7 +19,7 @@ import {
   relayArtifactFilenames,
   RELAY_INSTALL_COMPLETE_FILENAME,
   RELAY_VERSION_FILENAME
-} from '../../shared/relay-artifacts'
+} from './relay-install-artifacts'
 import {
   orcadArtifactFilenames,
   ORCAD_INSTALL_COMPLETE_FILENAME,
@@ -57,8 +57,9 @@ export const ORCAD_INSTALL_MODEL: RemoteInstallModel = {
   nativeDepsPackageName: 'orca-orcad',
   versionFilename: ORCAD_VERSION_FILENAME,
   installCompleteFilename: ORCAD_INSTALL_COMPLETE_FILENAME,
-  // libc changes no file name, so `<os>-<arch>` names every slot file.
-  requiredArtifacts: (host) => orcadArtifactFilenames(`${host.os}-${host.arch}`)
+  // libc changes no file name, so `<os>-<arch>` names every slot file. The page's hashed assets
+  // are named only by its manifest, required here; the sentinel follows the whole-tree upload.
+  requiredArtifacts: (host) => orcadArtifactFilenames(`${host.os}-${host.arch}`, [])
 }
 
 export const REMOTE_INSTALL_MODELS: readonly RemoteInstallModel[] = [
@@ -98,6 +99,12 @@ export function remoteInstallDirName(model: RemoteInstallModel, fullVersion: str
 export function remoteInstallVersionDirRegex(model: RemoteInstallModel): RegExp {
   assertSafeDirPrefix(model.dirPrefix)
   return new RegExp(`^${model.dirPrefix}-(${VERSION_PATTERN})$`)
+}
+
+/** A strictly named leftover of one model's interrupted GC rename; safe to delete on sight. */
+export function remoteInstallGcTombstoneRegex(model: RemoteInstallModel): RegExp {
+  assertSafeDirPrefix(model.dirPrefix)
+  return new RegExp(`^${model.dirPrefix}-(${VERSION_PATTERN})${TOMBSTONE_PATTERN}$`)
 }
 
 /** What the remote listing is allowed to return: live dirs plus their tombstones. */

@@ -1,95 +1,54 @@
 import { powerMonitor } from 'electron'
 import { recoverOrcadManagedTunnelsAfterHostResume } from '../ssh/orcad-managed-tunnel'
-import type { SshRelaySession } from '../ssh/ssh-relay-session'
-import { activeSessions } from './ssh-active-relay-sessions'
-import { connectionManager } from './ssh-ipc-context'
+import { getSshConnectionManager } from '../ssh/ssh-target-registry'
+import { errorMessage } from '../../shared/error-message'
 
 let powerMonitorUnsubscribe: (() => void) | null = null
+let registeredGetUserDataPath: (() => string) | undefined
 
 // Why: macOS can resume before the network is back, so a failed first probe gets one retry before the link is declared dead (#7773).
 const RESUME_PROBE_TIMEOUT_MS = 5_000
 const RESUME_PROBE_ATTEMPTS = 2
 
-async function isRelayLinkAliveAfterResume(session: SshRelaySession): Promise<boolean> {
-  const plainSsh = session.getPlainSshSession()
-  if (plainSsh) {
-    // Why: plain SSH has no mux to probe, and a needless reconnect would end every open shell.
-    for (let attempt = 0; attempt < RESUME_PROBE_ATTEMPTS; attempt++) {
-      if (await plainSsh.probeTransport(RESUME_PROBE_TIMEOUT_MS)) {
-        return true
-      }
-    }
-    return false
+/**
+ * Wake, unlock, or the window's resume/online signal. Why each: the ladder can spend itself in
+ * macOS dark wakes, which emit no resume, so only the next real signal can give it a fresh budget.
+ */
+export function retrySshConnectionsAfterNetworkReturn(): void {
+  const restarted = getSshConnectionManager()?.retryStalledReconnects() ?? []
+  if (restarted.length > 0) {
+    console.warn(`[ssh] Retrying ${restarted.length} stalled SSH reconnect(s) after wake/network`)
   }
-  const mux = session.getMux()
-  if (!mux || mux.isDisposed()) {
-    return false
+  const getUserDataPath = registeredGetUserDataPath
+  if (!getUserDataPath) {
+    return
   }
-  for (let attempt = 0; attempt < RESUME_PROBE_ATTEMPTS; attempt++) {
-    if (await mux.probeLiveness(RESUME_PROBE_TIMEOUT_MS)) {
-      return true
-    }
-  }
-  return false
+  // Why: a transport that still looks connected after wake is found dead by this probe, not by keepalive.
+  void recoverOrcadManagedTunnelsAfterHostResume(getUserDataPath(), {
+    attempts: RESUME_PROBE_ATTEMPTS,
+    timeoutMs: RESUME_PROBE_TIMEOUT_MS
+  }).catch((err) => {
+    console.warn(
+      `[ssh] Failed to recover a managed Orca tunnel after system resume: ${errorMessage(err)}`
+    )
+  })
 }
 
 export function registerPowerMonitorReconnect(getUserDataPath?: () => string): void {
   powerMonitorUnsubscribe?.()
-  const onSuspend = (): void => {
-    for (const session of activeSessions.values()) {
-      session.prepareForHostSleep()
-    }
-  }
-  const onResume = (): void => {
-    for (const [targetId, session] of activeSessions) {
-      const manager = connectionManager
-      const conn = manager?.getConnection(targetId)
-      if (!conn) {
-        continue
-      }
-      void (async () => {
-        // Why: unconditional reconnect on wake tore down live sessions and flashed the overlay (#7773); only reconnect if the relay link actually died during sleep.
-        if (await isRelayLinkAliveAfterResume(session)) {
-          return
-        }
-        // Why: the probe can take ~10s; bail if the session/connection was replaced or torn down meanwhile, else we'd resurrect it.
-        if (activeSessions.get(targetId) !== session || manager?.getConnection(targetId) !== conn) {
-          return
-        }
-        try {
-          await manager?.reconnect(targetId)
-        } catch (err) {
-          console.warn(
-            `[ssh] Failed to reconnect ${targetId} after system resume: ${
-              err instanceof Error ? err.message : String(err)
-            }`
-          )
-        }
-      })()
-    }
-    // Why separate: managed tunnels ride their own connections, not relay sessions.
-    if (getUserDataPath) {
-      void recoverOrcadManagedTunnelsAfterHostResume(getUserDataPath(), {
-        attempts: RESUME_PROBE_ATTEMPTS,
-        timeoutMs: RESUME_PROBE_TIMEOUT_MS
-      }).catch((err) => {
-        console.warn(
-          `[ssh] Failed to recover a managed Orca tunnel after system resume: ${
-            err instanceof Error ? err.message : String(err)
-          }`
-        )
-      })
-    }
-  }
-  powerMonitor.on('suspend', onSuspend)
+  registeredGetUserDataPath = getUserDataPath
+  const onResume = (): void => retrySshConnectionsAfterNetworkReturn()
   powerMonitor.on('resume', onResume)
+  // Why: macOS and Windows only; a lock without sleep can still drop a VPN route such as Tailscale's.
+  powerMonitor.on('unlock-screen', onResume)
   powerMonitorUnsubscribe = () => {
-    powerMonitor.off('suspend', onSuspend)
     powerMonitor.off('resume', onResume)
+    powerMonitor.off('unlock-screen', onResume)
   }
 }
 
 export function unregisterPowerMonitorReconnect(): void {
   powerMonitorUnsubscribe?.()
   powerMonitorUnsubscribe = null
+  registeredGetUserDataPath = undefined
 }

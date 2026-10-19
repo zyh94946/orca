@@ -27,7 +27,7 @@ import {
   agentSessionThrownFailure,
   type AgentSessionWriteFailure
 } from '../../../shared/agent-session-write-failure'
-import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
+import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 
 /** The options a launch starts with, replaced whole so readers can compare by identity. */
 export type StructuredLaunchSelection = {

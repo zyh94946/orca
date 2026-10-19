@@ -48,7 +48,8 @@ async function mount(initial: Props) {
       sessionId: 'session-1',
       enabled: true,
       fence: props.fence,
-      mutate
+      mutate,
+      hostSupport: { sendOptions: true, permissionModes: true }
     })
     frames.push(modelChoices(options.optionSnapshot))
     return null

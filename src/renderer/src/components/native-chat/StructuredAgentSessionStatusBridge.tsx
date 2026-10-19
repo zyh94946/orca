@@ -32,7 +32,7 @@ import { agentMainAgentVerdict } from '../../../../shared/agent-main-agent-verdi
 import { useStructuredAgentSessionLaunchLifecycle } from '@/lib/structured-agent-session-launch-registry'
 import { useStructuredAgentSessionLaunchFailedAt } from '@/lib/structured-agent-session-launch-failed-at'
 import { useAppStore } from '@/store'
-import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
+import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import {
   structuredAgentSessionOwnerForTab,
   structuredAgentSessionTargetForHost

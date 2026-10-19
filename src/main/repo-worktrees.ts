@@ -64,6 +64,24 @@ export async function listRepoWorktreesForDetectedScan(
   return listRoutedRepoWorktrees(repo, options, listWorktreesSharedStrictAllowingTrueEmpty)
 }
 
+function assertLocalGitRoute(repo: Repo): void {
+  const route = resolveGitRouteForHost(getRepoExecutionHostId(repo))
+  if (route.kind === 'runtime') {
+    // A runtime row's `connectionId` names a target in the *server's* namespace, not one this
+    // client may dial. Reading it here would answer from a same-named local target.
+    throw new WorktreeCatalogUnavailableError(
+      `Worktree catalog unavailable for ${repo.path}: host ${route.hostId} is not reachable from this process.`
+    )
+  }
+  if (route.kind === 'ssh') {
+    // Never fall back to local git against a server path, and never report the unserved host as an
+    // empty catalog (#14004) — callers treat a resolved listing as authoritative.
+    throw new WorktreeCatalogUnavailableError(
+      `Worktree catalog unavailable for ${repo.path}: SSH connection "${route.connectionId}" is not connected.`
+    )
+  }
+}
+
 async function listRoutedRepoWorktrees(
   repo: Repo,
   options: LocalRepoWorktreeListOptions | undefined,
@@ -75,25 +93,7 @@ async function listRoutedRepoWorktrees(
   if (isFolderRepo(repo)) {
     return [createFolderWorktree(repo)]
   }
-  const route = resolveGitRouteForHost(getRepoExecutionHostId(repo))
-  if (route.kind === 'runtime') {
-    // A runtime row's `connectionId` names a target in the *server's* namespace, not one this
-    // client may dial. Reading it here would answer from a same-named local target.
-    throw new WorktreeCatalogUnavailableError(
-      `Worktree catalog unavailable for ${repo.path}: host ${route.hostId} is not reachable from this process.`
-    )
-  }
-  if (route.kind === 'ssh') {
-    // Why: runtime worktree resolution can run before SSH providers have reattached during startup.
-    // Never fall back to local git against a server path, and never report the unreachable host as an
-    // empty catalog (#14004) — callers treat a resolved listing as authoritative.
-    if (!route.provider) {
-      throw new WorktreeCatalogUnavailableError(
-        `Worktree catalog unavailable for ${repo.path}: SSH connection "${route.connectionId}" is not connected.`
-      )
-    }
-    return await route.provider.listWorktrees(repo.path)
-  }
+  assertLocalGitRoute(repo)
   const worktrees = hasLocalRepoWorktreeListOptions(options)
     ? await listLocal(repo.path, options)
     : await listLocal(repo.path)
@@ -114,16 +114,9 @@ export async function listRepoWorktreeGraph(
   if (isFolderRepo(repo)) {
     return [createFolderWorktree(repo)]
   }
-  const route = resolveGitRouteForHost(getRepoExecutionHostId(repo))
-  // An unreachable remote host answers `[]` here, unlike listRepoWorktrees above, which throws.
-  // Preserved as-is: this call site's callers treat the graph as best-effort. The inconsistency is
-  // real but is a separate behavior decision from resolving the host correctly.
-  if (route.kind === 'runtime') {
-    return []
-  }
-  if (route.kind === 'ssh') {
-    return route.provider ? await route.provider.listWorktrees(repo.path) : []
-  }
+  // Why throw: `[]` reads as "no such worktree", so hosted review answered "does not belong to
+  // repository" for a live remote worktree whose host is merely unreachable (#18272).
+  assertLocalGitRoute(repo)
   const worktrees = hasLocalRepoWorktreeListOptions(options)
     ? await listWorktreeGraph(repo.path, options)
     : await listWorktreeGraph(repo.path)

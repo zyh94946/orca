@@ -1,3 +1,4 @@
+import { getDefaultWorkspaceSession } from '../../../shared/constants'
 import { describe, expect, it, vi } from 'vitest'
 import {
   OrcaRuntimeService,
@@ -10,7 +11,11 @@ import {
   runHook,
   shouldRunSetupForCreate
 } from '../orca-runtime-test-mocks.spec'
-import { expectStablePaneKeyEnv, store } from '../orca-runtime-test-fixtures.spec'
+import {
+  expectStablePaneKeyEnv,
+  store,
+  makeRuntimeStoreWithWorkspaceSession
+} from '../orca-runtime-test-fixtures.spec'
 
 describe('OrcaRuntimeService', () => {
   it('sequences setup before startup for opted-in local headless worktree creates', async () => {
@@ -515,9 +520,9 @@ describe('OrcaRuntimeService', () => {
     expect(revealPayload).not.toHaveProperty('surfaceOwner')
   })
 
-  it('honors split setup placement for CLI-created worktrees without startup agents', async () => {
+  it('uses a Setup tab for CLI-created worktrees with a retired split preference', async () => {
     const runtimeStore = {
-      ...store,
+      ...makeRuntimeStoreWithWorkspaceSession(getDefaultWorkspaceSession()).runtimeStore,
       getSettings: () => ({
         ...store.getSettings(),
         setupScriptLaunchMode: 'split-vertical' as const
@@ -589,16 +594,14 @@ describe('OrcaRuntimeService', () => {
     const setupEnv = (spawn.mock.calls[1]![0] as { env?: Record<string, string> }).env ?? {}
     expectStablePaneKeyEnv(mainEnv)
     expectStablePaneKeyEnv(setupEnv)
-    expect(setupEnv.ORCA_TAB_ID).toBe(mainEnv.ORCA_TAB_ID)
-    const mainLeafId = mainEnv.ORCA_PANE_KEY!.slice(`${mainEnv.ORCA_TAB_ID!}:`.length)
+    expect(setupEnv.ORCA_TAB_ID).not.toBe(mainEnv.ORCA_TAB_ID)
     expect(revealTerminalSession).toHaveBeenLastCalledWith(
       result.worktree.id,
       expect.objectContaining({
         ptyId: 'pty-cli-setup-setup',
-        tabId: mainEnv.ORCA_TAB_ID,
+        tabId: setupEnv.ORCA_TAB_ID,
         activate: false,
-        splitFromLeafId: mainLeafId,
-        splitDirection: 'vertical'
+        title: 'Setup'
       })
     )
   })

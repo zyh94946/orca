@@ -6,6 +6,7 @@ import {
 import { app, ipcMain } from 'electron'
 import { listEnvironments } from '../../shared/runtime-environment-store'
 import type { Store } from '../persistence'
+import { recordRemoteLayoutFrame } from '../remote-layout-snapshot'
 import {
   isRuntimeEnvironmentManuallyDisconnected,
   registerRuntimeEnvironmentConnectivityHandlers,
@@ -22,6 +23,7 @@ import { RUNTIME_ENVIRONMENT_HANDLER_CHANNELS } from './runtime-environment-hand
 import { registerOrcadRuntimeLifecycleHandlers } from './orcad-runtime-lifecycle-handlers'
 import { registerOrcadRuntimeConversionHandlers } from './orcad-runtime-conversion-handlers'
 import { registerOrcadDeltaMoveHandlers } from './orcad-delta-move-handlers'
+import { registerOrcadLeaveBehindHandlers } from './orcad-leave-behind-handlers'
 import { registerOrcadRuntimeMaintenanceHandlers } from './orcad-runtime-maintenance-handlers'
 import { clearPublishedManagedServer } from './ssh-renderer-broadcast'
 import { clearManagedServerNotes } from './runtime-environment-managed-tunnel'
@@ -30,7 +32,10 @@ import { registerRuntimeSshAccessHandlers } from './runtime-ssh-access-handlers'
 import { retirePairedRuntimeBrowserClientHostEnvironment } from '../browser/paired-runtime-browser-client-host-runtime'
 import { registerRuntimeEnvironmentBrowserClientHostHandler } from './runtime-environment-browser-client-host-handler'
 import { advanceRuntimeEnvironmentCapabilityIncarnation } from './runtime-environment-capability-evidence'
+import { retireMobileDesktopRelayEnvironment } from './runtime-environment-mobile-relay-hosts'
 import { watchRuntimeEnvironmentPreference } from './runtime-environment-preference'
+import { isGatedOffWslHost } from '../wsl/wsl-host-gate'
+import { resetDesktopBrowserBridgeEnvironment } from './desktop-browser-bridge-reconcile'
 
 const remoteRuntimeSubscriptions = new Map<string, RetainedRemoteRuntimeSubscription>()
 const getUserDataPath = (): string => app.getPath('userData')
@@ -72,6 +77,8 @@ export function invalidateRuntimeEnvironmentTransport(environmentId: string): Pr
   advanceRuntimeEnvironmentTransportGeneration(environmentId)
   closeRemoteRuntimeRequestConnection(environmentId)
   closeSubscriptionsForEnvironment(environmentId)
+  retireMobileDesktopRelayEnvironment(environmentId)
+  resetDesktopBrowserBridgeEnvironment(environmentId)
   reactivateRuntimeEnvironmentStatus(environmentId)
   return retirePairedRuntimeBrowserClientHostEnvironment(
     environmentId,
@@ -92,7 +99,9 @@ function reactivateRuntimeEnvironmentStatus(environmentId: string): void {
   const userDataPath = getUserDataPath()
   if (
     isRuntimeEnvironmentManuallyDisconnected(environmentId) ||
-    !listEnvironments(userDataPath).some((environment) => environment.id === environmentId)
+    !listEnvironments(userDataPath).some(
+      (environment) => environment.id === environmentId && !isGatedOffWslHost(environment)
+    )
   ) {
     return
   }
@@ -130,7 +139,10 @@ export function registerRuntimeEnvironmentHandlers(store: Store): void {
   registerRuntimeEnvironmentRecoveryHandler()
   registerRuntimeEnvironmentPassiveHandlers(getUserDataPath)
   for (const environment of listEnvironments(getUserDataPath())) {
-    if (!isRuntimeEnvironmentManuallyDisconnected(environment.id)) {
+    if (
+      !isRuntimeEnvironmentManuallyDisconnected(environment.id) &&
+      !isGatedOffWslHost(environment)
+    ) {
       getRuntimeEnvironmentStatusOwner(getUserDataPath(), environment.id).activate()
     }
   }
@@ -141,17 +153,20 @@ export function registerRuntimeEnvironmentHandlers(store: Store): void {
   registerOrcadRuntimeLifecycleHandlers({ getUserDataPath })
   registerOrcadRuntimeConversionHandlers(getUserDataPath)
   registerOrcadDeltaMoveHandlers(getUserDataPath)
+  registerOrcadLeaveBehindHandlers()
   registerOrcadRuntimeMaintenanceHandlers({
     getUserDataPath,
     getActiveEnvironmentId: () => store.getSettings().activeRuntimeEnvironmentId,
     invalidateTransport: invalidateRuntimeEnvironmentTransport,
     clearHostServerStatus: clearPublishedManagedServer,
     clearHostServerNotes: clearManagedServerNotes,
-    forgetHostSession: (hostId) => store.removeWorkspaceSessionHost(hostId)
+    store
   })
   registerRuntimeEnvironmentSubscriptionHandlers({
     getUserDataPath,
     remoteRuntimeSubscriptions,
-    pendingSubscriptions
+    pendingSubscriptions,
+    recordLayoutFrame: (environmentId, method, response) =>
+      recordRemoteLayoutFrame(store, environmentId, method, response)
   })
 }

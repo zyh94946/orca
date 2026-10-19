@@ -1,22 +1,20 @@
+import type * as ExecCommandModule from './ssh-relay-exec-command'
 import { describe, expect, it, vi } from 'vitest'
-import { RELAY_LSOF_PROBE_JS } from '../../shared/child-process/posix-lsof-probe'
+import { RELAY_LSOF_PROBE_JS } from '@orca/process-host/posix-lsof-probe'
 
 const execCommand = vi.fn()
-vi.mock('./ssh-relay-deploy-helpers', () => ({
+vi.mock('./ssh-relay-exec-command', async (importOriginal) => ({
+  ...(await importOriginal<typeof ExecCommandModule>()),
   execCommand: (...args: unknown[]) => execCommand(...args),
   isUnconfirmedSshCommandTermination: (error: unknown) =>
     (error as { sshChannelCloseConfirmed?: boolean } | null)?.sshChannelCloseConfirmed === false
 }))
 
 import {
-  describeRelayEndpointIncumbent,
   isReapableRelayHusk,
-  mayLaunchOverRelayEndpoint,
   parseRelayEndpointIncumbentProbe,
   probeRelayEndpointIncumbent,
-  relayEndpointIncumbentProbeCommand,
-  withHandshakeRefusalEvidence,
-  type RelayEndpointIncumbent
+  relayEndpointIncumbentProbeCommand
 } from './ssh-relay-endpoint-incumbent'
 import type { SshConnection } from './ssh-connection'
 import { getRemoteHostPlatform } from './ssh-remote-platform'
@@ -62,11 +60,61 @@ describe('parseRelayEndpointIncumbentProbe', () => {
   it('reports exited only when the connect was refused AND nothing holds the socket', () => {
     const incumbent = parseRelayEndpointIncumbentProbe(
       SOCK,
-      probeOutput(['PRESENT=yes', 'LISTEN=refused', 'HOLDERS_SOURCE=lsof'])
+      probeOutput([
+        'PRESENT=yes',
+        'LISTEN=refused',
+        'FS_TYPE=linux ef53 ef53',
+        'HOLDERS_SOURCE=lsof'
+      ])
     )
     expect(incumbent.verdict).toBe('exited')
     expect(incumbent.evidence).toBe('no-holder')
     expect(incumbent.socketPresent).toBe(true)
+  })
+
+  it('reports exited for a refused socket on a macOS boot-volume filesystem or Linux tmpfs', () => {
+    for (const fsType of ['darwin 1a 1a', 'Linux 1021994 ef53', 'darwin-mount apfs']) {
+      const incumbent = parseRelayEndpointIncumbentProbe(
+        SOCK,
+        probeOutput(['PRESENT=yes', 'LISTEN=refused', `FS_TYPE=${fsType}`, 'HOLDERS_SOURCE=lsof'])
+      )
+      expect(incumbent.verdict).toBe('exited')
+    }
+  })
+
+  // A relay on node A of a round-robin alias sharing an NFS home: node B's kernel refuses the
+  // socket and B's lsof sees no holder, though A's relay still runs its terminals.
+  it('reports unverifiable for a refused socket that another machine may hold', () => {
+    for (const fsType of [
+      'linux 6969 ef53', // nfs
+      'linux ff534d42 ef53', // cifs
+      'linux 65735546 ef53', // fuse (sshfs)
+      'darwin 1c 1a', // macOS nfs/smbfs
+      'darwin-mount nfs',
+      'darwin-mount smbfs',
+      'darwin-mount ', // no mount line matched
+      'linux  ', // statfs unavailable
+      'freebsd 35 35'
+    ]) {
+      const incumbent = parseRelayEndpointIncumbentProbe(
+        SOCK,
+        probeOutput(['PRESENT=yes', 'LISTEN=refused', `FS_TYPE=${fsType}`, 'HOLDERS_SOURCE=lsof'])
+      )
+      expect(incumbent.verdict).toBe('unverifiable')
+    }
+    const withoutType = parseRelayEndpointIncumbentProbe(
+      SOCK,
+      probeOutput(['PRESENT=yes', 'LISTEN=refused', 'HOLDERS_SOURCE=lsof'])
+    )
+    expect(withoutType.verdict).toBe('unverifiable')
+  })
+
+  it('still reports exited for a socket path that no longer exists, on any filesystem', () => {
+    const incumbent = parseRelayEndpointIncumbentProbe(
+      SOCK,
+      probeOutput(['PRESENT=no', 'LISTEN=absent', 'FS_TYPE=linux 6969 ef53', 'HOLDERS_SOURCE=lsof'])
+    )
+    expect(incumbent.verdict).toBe('exited')
   })
 
   it('reports unverifiable when the host cannot enumerate socket holders', () => {
@@ -99,6 +147,7 @@ describe('parseRelayEndpointIncumbentProbe', () => {
       probeOutput([
         'PRESENT=yes',
         'LISTEN=refused',
+        'FS_TYPE=linux ef53 ef53',
         'HOLDERS_SOURCE=lsof',
         'HOLDER=- no unknown unknown'
       ])
@@ -198,35 +247,6 @@ describe('relayEndpointIncumbentProbeCommand', () => {
   })
 })
 
-describe('withHandshakeRefusalEvidence', () => {
-  it('upgrades an unenumerable endpoint to live when the daemon answered the handshake', () => {
-    const probed = parseRelayEndpointIncumbentProbe(
-      SOCK,
-      probeOutput(['PRESENT=yes', 'LISTEN=unknown', 'HOLDERS_SOURCE=unavailable'])
-    )
-    const incumbent = withHandshakeRefusalEvidence(probed)
-    expect(incumbent.verdict).toBe('live')
-    expect(incumbent.evidence).toBe('handshake-refusal')
-    expect(mayLaunchOverRelayEndpoint(incumbent)).toBe(false)
-  })
-
-  it('leaves stronger evidence in place', () => {
-    const probed = parseRelayEndpointIncumbentProbe(
-      SOCK,
-      probeOutput(['PRESENT=yes', 'LISTEN=accepted', 'HOLDERS_SOURCE=lsof'])
-    )
-    expect(withHandshakeRefusalEvidence(probed).evidence).toBe('accepted-connection')
-  })
-})
-
-describe('mayLaunchOverRelayEndpoint', () => {
-  const verdicts: RelayEndpointIncumbent['verdict'][] = ['live', 'unverifiable', 'exited']
-  it.each(verdicts)('permits a relaunch for %s only when it is not live', (verdict) => {
-    const incumbent = { ...parseRelayEndpointIncumbentProbe(SOCK, ''), verdict }
-    expect(mayLaunchOverRelayEndpoint(incumbent)).toBe(verdict !== 'live')
-  })
-})
-
 describe('isReapableRelayHusk', () => {
   const husk = parseRelayEndpointIncumbentProbe(
     SOCK,
@@ -288,20 +308,5 @@ describe('isReapableRelayHusk', () => {
   it('refuses an unverifiable endpoint however empty it looks', () => {
     expect(isReapableRelayHusk({ ...husk, verdict: 'unverifiable' })).toBe(false)
     expect(isReapableRelayHusk({ ...husk, holdersEnumerable: false })).toBe(false)
-  })
-})
-
-describe('describeRelayEndpointIncumbent', () => {
-  it('distinguishes "no holders" from "could not enumerate holders"', () => {
-    const none = parseRelayEndpointIncumbentProbe(
-      SOCK,
-      probeOutput(['PRESENT=yes', 'LISTEN=refused', 'HOLDERS_SOURCE=lsof'])
-    )
-    const unknown = parseRelayEndpointIncumbentProbe(
-      SOCK,
-      probeOutput(['PRESENT=yes', 'LISTEN=refused', 'HOLDERS_SOURCE=unavailable'])
-    )
-    expect(describeRelayEndpointIncumbent(none)).toContain('holders=none')
-    expect(describeRelayEndpointIncumbent(unknown)).toContain('holders=unenumerable')
   })
 })

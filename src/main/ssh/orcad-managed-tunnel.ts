@@ -5,6 +5,7 @@ import type { SshConnection } from './ssh-connection'
 import { probeManagedOrcadTunnel } from './orcad-managed-tunnel-resume'
 import { ensureManagedOrcadServing } from './orcad-managed-serving'
 import { OrcadManagedTunnelManager } from './orcad-managed-tunnel-manager'
+import { getRemoteRuntimeSharedControlAnsweredAt } from '../ipc/runtime-environment-shared-control-answers'
 import { getSshConnectionManager, getSshTargetRegistryStore } from './ssh-target-registry'
 import {
   MANAGED_ORCAD_TUNNEL_TARGETING,
@@ -17,7 +18,12 @@ const managedTunnels = new OrcadManagedTunnelManager({
   getConnectionManager: getSshConnectionManager,
   getTargetStore: getSshTargetRegistryStore,
   targeting: MANAGED_ORCAD_TUNNEL_TARGETING,
-  ensureServing: (input) => ensureManagedOrcadServing({ ...input, probe: probeManagedOrcadTunnel })
+  ensureServing: (input) =>
+    ensureManagedOrcadServing({
+      ...input,
+      probe: probeManagedOrcadTunnel,
+      answeredAt: getRemoteRuntimeSharedControlAnsweredAt
+    })
 })
 
 export async function ensureOrcadManagedTunnel(
@@ -55,6 +61,11 @@ export function verifyManagedTunnelServing(environment: KnownRuntimeEnvironment)
 
 export function disposeOrcadManagedTunnels(): void {
   managedTunnels.dispose()
+}
+
+/** Why on quit: a system-ssh tunnel is its own `ssh -L` process and would outlive Orca. */
+export function shutdownOrcadManagedTunnels(): Promise<void> {
+  return managedTunnels.shutdown()
 }
 
 export function recoverOrcadManagedTunnelsAfterHostResume(

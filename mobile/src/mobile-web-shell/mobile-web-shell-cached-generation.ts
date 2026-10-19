@@ -2,7 +2,6 @@ import type {
   CachedGeneration,
   MobileWebShellBlockedVerdict,
   MobileWebShellSession,
-  MobileWebShellSessionEffect,
   MobileWebShellStep
 } from './mobile-web-shell-session-contract'
 import { NATIVE_ROUTE } from './mobile-web-shell-gates'
@@ -22,8 +21,7 @@ export function rendersRoute(pageRoutes: readonly string[], pathname: string): b
 export function openCached(
   session: MobileWebShellSession,
   generation: CachedGeneration,
-  patch: Partial<MobileWebShellSession> = {},
-  andThen: readonly MobileWebShellSessionEffect[] = []
+  patch: Partial<MobileWebShellSession> = {}
 ): MobileWebShellStep {
   return step(session, { ...patch, state: { kind: 'activating', source: 'cache' } }, [
     {
@@ -31,8 +29,7 @@ export function openCached(
       directory: generation.directory,
       buildId: generation.buildId,
       totalBytes: generation.totalBytes
-    },
-    ...andThen
+    }
   ])
 }
 
@@ -57,7 +54,10 @@ export function openByOwnRoutes(
   } = {}
 ): MobileWebShellStep {
   const { patch = {}, served = {}, wall = null } = options
-  const view = routeViewOf(generation.routes, session.routePathname)
+  const view = {
+    ...routeViewOf(generation.routes, session.routePathname, session.wide),
+    routes: generation.routes
+  }
   if (!rendersRoute(view.pageRoutes, session.routePathname)) {
     return step(session, { ...patch, ...view, state: NATIVE_ROUTE })
   }

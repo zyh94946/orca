@@ -15,7 +15,7 @@ import {
 import type { ClaudeStreamJsonConnection } from './claude-stream-json-connection'
 import type { ClaudeJournalTranslator } from './claude-journal-translator-contract'
 import type { ClaudePromptRegistry } from './claude-structured-prompt-replies'
-import { closeProcessRegistry } from '../../shared/child-process/close-process-registry'
+import { closeProcessRegistry } from '@orca/process-host/close-process-registry'
 import { retireClaudeDispatchWaiters } from './claude-structured-dispatch'
 import { settledClaudeTurnEndLeaf } from './claude-structured-resume-point'
 import { settleClaudeTurnEndWaiters } from './claude-request-end-wait'
@@ -147,8 +147,7 @@ async function finalizeClaudePublishedSession(
       cause: 'requested-close',
       fence: session.fence,
       acquisitionGeneration: session.acquisitionGeneration,
-      observedAt: Date.now(),
-      ...(session.startup.answered ? {} : { startupUnanswered: true as const })
+      observedAt: Date.now()
     }
     try {
       try {

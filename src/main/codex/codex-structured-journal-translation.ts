@@ -1,4 +1,6 @@
 import { createCodexProviderActivityReader } from '../native-chat/agent-session-wire/provider-frame-activity'
+import { recordCodexContextUsage } from './codex-context-usage'
+import { CODEX_TOKEN_USAGE_METHOD } from './codex-subagent-activity'
 import {
   CODEX_JOURNAL_ADMITTED,
   type CodexJournalTranslationAdmission,
@@ -234,6 +236,20 @@ export function createCodexJournalTranslator(
       if (goal) {
         return publishActivity(event, goal)
       }
+      // The session's own thread fills the window its chat shows; a child's frame measures its own.
+      if (
+        event.method === CODEX_TOKEN_USAGE_METHOD &&
+        event.threadId === (deps.primaryThreadId?.() ?? null)
+      ) {
+        recordCodexContextUsage({
+          sink: deps.sink,
+          activeTurns,
+          attributionFor,
+          threadId: event.threadId,
+          params: event.params,
+          capturedAt: deps.now?.() ?? Date.now()
+        })
+      }
       if (event.method === 'item/started' || event.method === 'item/completed') {
         const routed = routeThreadItem(event)
         // Not a bare return: a claimed item must not skip the turn-tail arm,
@@ -270,8 +286,7 @@ export function createCodexJournalTranslator(
       const unhandled = genericFrames.appendUnhandled(
         `notification:${event.method}`,
         event.params,
-        event.threadId,
-        { coveredByTypedTranslator: event.method === 'thread/status/changed' }
+        event.threadId
       )
       if (unhandled.accepted && event.method === 'error') {
         commands.errorShown(event.params)

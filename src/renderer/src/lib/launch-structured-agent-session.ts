@@ -19,7 +19,7 @@ import {
   structuredAgentSessionFocusOwner,
   structuredAgentSessionTargetForHost
 } from '@/runtime/structured-agent-session-owner'
-import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
+import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import type { ExecutionHostId } from '../../../shared/execution-host'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import {

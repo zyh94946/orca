@@ -13,7 +13,7 @@ vi.mock('@/store', () => ({
 
 import { dispatchTerminalShortcutAction } from './terminal-keyboard-action-dispatch'
 
-function dispatchContext() {
+function dispatchContext(): Parameters<typeof dispatchTerminalShortcutAction>[3] {
   return {
     tabId: 'tab',
     worktreeId: 'wt',
@@ -25,6 +25,8 @@ function dispatchContext() {
     persistLayoutSnapshot: vi.fn(),
     toggleExpandPane: vi.fn(),
     setSearchOpen: vi.fn(),
+    focusSearchInput: vi.fn(),
+    searchOpenRef: { current: false },
     onRequestClosePane: vi.fn(),
     onClearPaneScrollback: vi.fn(),
     onSetTitle: vi.fn(),
@@ -48,14 +50,15 @@ function twoPaneManager(): { manager: PaneManager; root: HTMLDivElement } {
   paneB.className = 'pane'
   root.append(paneA, divider, paneB)
   document.body.append(root)
-  paneA.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 100 }) as DOMRect
-  paneB.getBoundingClientRect = () => ({ x: 110, y: 0, width: 100, height: 100 }) as DOMRect
+  paneA.getBoundingClientRect = () => new DOMRect(0, 0, 100, 100)
+  paneB.getBoundingClientRect = () => new DOMRect(110, 0, 100, 100)
   const panes = [
     { id: 1, container: paneA },
     { id: 2, container: paneB }
   ]
   return {
     root,
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Spatial focus reads only the three manager methods supplied by this fixture.
     manager: {
       getPanes: () => panes,
       getActivePane: () => panes[0],
@@ -69,11 +72,8 @@ describe('dispatchTerminalShortcutAction spatial focus', () => {
     goBackWorktree.mockClear()
     goForwardWorktree.mockClear()
     const { manager, root } = twoPaneManager()
-    const event = {
-      preventDefault: vi.fn(),
-      stopImmediatePropagation: vi.fn(),
-      repeat: false
-    } as unknown as KeyboardEvent
+    const event = new KeyboardEvent('keydown')
+    vi.spyOn(event, 'preventDefault')
 
     dispatchTerminalShortcutAction(
       { type: 'focusPane', direction: 'right' },
@@ -92,11 +92,8 @@ describe('dispatchTerminalShortcutAction spatial focus', () => {
     goBackWorktree.mockClear()
     goForwardWorktree.mockClear()
     const { manager, root } = twoPaneManager()
-    const event = {
-      preventDefault: vi.fn(),
-      stopImmediatePropagation: vi.fn(),
-      repeat: false
-    } as unknown as KeyboardEvent
+    const event = new KeyboardEvent('keydown')
+    vi.spyOn(event, 'preventDefault')
 
     dispatchTerminalShortcutAction(
       { type: 'focusPane', direction: 'left' },

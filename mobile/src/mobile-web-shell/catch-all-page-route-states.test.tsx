@@ -42,7 +42,8 @@ vi.mock('react-native', () => ({
   Pressable: 'Pressable',
   StyleSheet: { create: (styles: unknown) => styles },
   Text: 'Text',
-  View: 'View'
+  View: 'View',
+  useWindowDimensions: () => ({ width: 390, height: 844 })
 }))
 vi.mock('expo-clipboard', () => ({
   setStringAsync: () => Promise.resolve(true),
@@ -100,7 +101,8 @@ vi.mock('expo-router', () => ({
     canGoBack: () => false
   }),
   usePathname: () => '/h/host-1',
-  useNavigation: () => ({ setOptions: vi.fn() })
+  useNavigation: () => ({ setOptions: vi.fn() }),
+  useFocusEffect: () => {}
 }))
 vi.mock('../../modules/orca-mobile-web-shell/src', async () => {
   const React = await import('react')
@@ -259,7 +261,7 @@ describe('the screen the catch-all paints for each shell state', () => {
   it('says the host is unreachable rather than that the screen is unavailable', async () => {
     const tree = await renderRoute({ kind: 'offline' })
     const text = textOf(tree)
-    expect(text).toContain('Connect to this host to download the workspace')
+    expect(text).toContain('Connect to this host to download the latest app')
     expect(text).not.toContain('This workspace screen is not available on this host.')
   })
 

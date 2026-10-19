@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { agentSessionRecordFixture } from '../../shared/agent-session-record.test-fixture'
 import type { AgentSessionRecord } from '../../shared/agent-session-record'
 import { codexProviderHandle } from '../../shared/agent-session-provider-handle-encoding'
-import { runProcess } from '../../shared/child-process/run-process'
+import { runProcess } from '@orca/process-host'
 import {
   createCodexStructuredLaunchResolver,
   TEST_SPAWN_TOKEN

@@ -58,6 +58,11 @@ export const WorktreeCreate = z
       .optional(),
     workspaceStatus: OptionalString,
     manualOrder: OptionalFiniteNumber,
+    // Why: the client's "Nest Workspaces" choice; absent (older clients) keeps the host's own setting.
+    nestWorkspaces: z.boolean().optional(),
+    // Why: the client's Keep Local Main Up to Date choice; absent (older clients) keeps the host's.
+    refreshLocalBaseRefOnWorktreeCreate: z.boolean().optional(),
+    localBaseRefSuggestionDismissed: z.boolean().optional(),
     sparseCheckout: z
       .object({
         directories: z.array(z.string()),
@@ -95,6 +100,7 @@ export const WorktreeCreate = z
         coordinatorHandle: OptionalString
       })
       .optional(),
+    setupOnly: z.boolean().optional(),
     setupDecision: z
       .unknown()
       .transform((v) =>

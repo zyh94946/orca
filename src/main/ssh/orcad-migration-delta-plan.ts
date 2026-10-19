@@ -59,6 +59,7 @@ export function orcadDeltaSourceStore(
   // A linked project or group is the server's already, so a delta never moves it either.
   const linked = moved.flatMap((cutover) => cutover.linkedRepositoryIds ?? [])
   const linkedGroups = moved.flatMap((cutover) => cutover.linkedProjectGroupIds ?? [])
+  const linkedFolders = moved.flatMap((cutover) => cutover.linkedFolderWorkspaceIds ?? [])
   // Why linked groups subtract like moved ones: a group a new row needs still moves, since the
   // server may have deleted it; an unused one never reappears as this desktop's addition.
   return orcadSourceStoreWithout(
@@ -67,6 +68,7 @@ export function orcadDeltaSourceStore(
     {
       ...ids,
       repositoryIds: new Set([...ids.repositoryIds, ...linked]),
+      folderWorkspaceIds: new Set([...ids.folderWorkspaceIds, ...linkedFolders]),
       projectGroupIds: new Set([...ids.projectGroupIds, ...linkedGroups])
     },
     moved.at(-1)?.destinationEnvironmentId

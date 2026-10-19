@@ -3,6 +3,7 @@ import { ChevronLeft, X } from 'lucide-react-native'
 import { BottomDrawer } from '../components/BottomDrawer'
 import { colors, radii, spacing, typography } from '../theme/mobile-theme'
 import {
+  isReadOnlySessionOptionValue,
   sessionOptionDispatchUnconfirmed,
   type SessionOptionDescriptor,
   type SessionOptionValue
@@ -198,7 +199,11 @@ export function MobileNativeChatSessionOptionPickers({
                     value={mobileSessionOptionSummaryValue(descriptor)}
                     disabled={disabled}
                     divided={index < options.length - 1}
-                    onPress={() => onNavigate(descriptor.id)}
+                    onPress={
+                      isReadOnlySessionOptionValue(descriptor)
+                        ? undefined
+                        : () => onNavigate(descriptor.id)
+                    }
                   />
                 ))}
               </View>

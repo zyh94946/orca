@@ -14,12 +14,15 @@ import {
 import { getManagedOrcadFenceEnvironmentId } from '../../../shared/managed-orcad-ssh-owner'
 import { closeOrcadManagedTunnel } from '../../managed-server/lifecycle/orcad-managed-tunnel'
 import { rotateSshProviderAuthority } from '../../ssh/ssh-provider-authority'
-import { getSshTargetRegistryStore, setSshTargetMutations } from '../../ssh/ssh-target-registry'
+import {
+  getSshTargetRegistryStore,
+  setSshTargetMutations
+} from '../../ssh/targets/ssh-target-registry'
 import {
   allowsDirectSshRelay,
   isManagedOrcadSshTarget,
   isRuntimeOwnedSshTarget
-} from '../../ssh/ssh-connection-store'
+} from '../../ssh/connection/ssh-connection-store'
 import { connectionManager, getCurrentMainWindow } from './ssh-ipc-context'
 import { runTargetLifecycle } from './ssh-target-lifecycle-queue'
 import { fingerprintRuntimeSshTarget } from '../../ssh/runtime-ssh-access'
@@ -97,7 +100,7 @@ export function assertNotManagedServerHost(targetId: string): void {
   const target = getSshTargetRegistryStore()!.getTarget(targetId)
   if (target && isManagedOrcadSshTarget(target)) {
     throw new Error(
-      'This host runs a managed Orca server. Use Stop… under Settings › Managed servers to stop the server and remove it first, or Forget… there if the host is gone.'
+      'Orca runs on this host. Use Stop… under Settings › Orca on your SSH hosts to stop it and remove it from the host first, or Forget… there if the host is gone.'
     )
   }
 }

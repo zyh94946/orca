@@ -107,8 +107,45 @@ describe('a live Claude chat whose CLI reports idle', () => {
         reason: `${DISPATCH_DOUBT_WRITE_OUTCOME_UNKNOWN}: stdin write stalled`
       })
     )
-    expect(await submission(host, pending)).toMatchObject({ dispatchState: 'pending' })
-    expect((await submission(host, pending))?.recovered).toBeUndefined()
+
+    // Nothing will rewrite the row, so nothing may wait on it.
+    await vi.waitFor(() => expect(host.currentWork(SESSION)?.working()).toBe(false))
+    const raw = await submission(host, doubted)
+    expect(raw?.recovered).toBeUndefined()
+    const published = raw && host.currentWork(SESSION)?.publishedSubmission(raw)
+    expect(published).toMatchObject({ dispatchState: 'unknown', recovered: true })
+    expect(published && hasUnansweredStructuredAgentSessionDispatch([published], fence(host))).toBe(
+      false
+    )
+
+    child.connection.send = async (message, beforeDispatch) => {
+      await beforeDispatch?.()
+      child.handlers.onMessage?.({ ...message, session_id: PROVIDER_SESSION })
+      child.handlers.onMessage?.({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        uuid: 'later-result',
+        session_id: PROVIDER_SESSION
+      })
+    }
+    const later = await send(host, 'second succeeds')
+    await vi.waitFor(async () =>
+      expect(await submission(host, later)).toMatchObject({ dispatchState: 'accepted' })
+    )
+    await vi.waitFor(() => expect(host.currentWork(SESSION)?.working()).toBe(false))
+    child.exit(scriptedClaudeExitError('claude stream-json exited (code 137)'))
+    await vi.waitFor(() =>
+      expect(host.deps.store.getRecord(SESSION)?.lease.claimStatus).toBe('released')
+    )
+    const snapshot = await host.journalSnapshot(SESSION)
+    expect(snapshot.items.some((item) => item.body.kind === 'status' && item.body.failure)).toBe(
+      false
+    )
+    expect(
+      snapshot.items.some((item) => item.body.kind === 'turn' && item.body.state === 'completed')
+    ).toBe(true)
+    expect(await submission(host, doubted)).toMatchObject({ dispatchState: 'unknown' })
   })
 })
 

@@ -3,7 +3,11 @@ import {
   normalizeCompatibleAgentTitleForOwner
 } from '../../shared/agent-title-owner'
 import { resolvePaneAgentOwnerRecord } from '../../shared/pane-agent-owner'
-import type { AgentStatusEntry, AgentStatusIpcPayload } from '../../shared/agent-status-types'
+import {
+  pickHostTurnEnd,
+  type AgentStatusEntry,
+  type AgentStatusIpcPayload
+} from '../../shared/agent-status-types'
 import type { RuntimeMobileSessionTerminalTab } from '../../shared/runtime-types'
 import {
   renewRuntimeMobileAgentStatusFromPtyTitle,
@@ -67,7 +71,12 @@ export function buildRuntimeMobileAgentStatus(
         )
       : null
   const ptyTitleClassification = classifyAgentTitle(ptyTitle)
-  const nonAgentTitle = ptyTitle !== null && ptyTitleClassification !== 'agent'
+  const titleOmitsAgent = ptyTitle !== null && ptyTitleClassification !== 'agent'
+  const oscTitle = pty?.lastOscTitle ?? leaf?.lastOscTitle ?? null
+  // Why: a manual rename is not the shell reclaiming the pane, so the hook session stays addressable (#20626).
+  const manualTitleOverridesAgentOsc =
+    titleOmitsAgent && ptyTitle !== oscTitle && classifyAgentTitle(oscTitle) === 'agent'
+  const nonAgentTitle = titleOmitsAgent && !manualTitleOverridesAgentOsc
   if (nonAgentTitle) {
     // Why: non-agent title = shell reclaimed the pane; suppress to clear stuck spinners (#1437), though a live hook signal survives.
     const hasLiveHookSignal =
@@ -110,6 +119,7 @@ export function buildRuntimeMobileAgentStatus(
           ? { evidenceObservedAt: liveRow.evidenceObservedAt }
           : {}),
         stateStartedAt: liveRow.stateStartedAt,
+        ...pickHostTurnEnd(liveRow),
         stateHistory: [],
         ...(terminalHandle ? { terminalHandle } : {}),
         ...((pty?.worktreeId ?? liveRow.worktreeId)
@@ -117,7 +127,8 @@ export function buildRuntimeMobileAgentStatus(
           : {}),
         tabId: tab.parentTabId,
         terminalTitle,
-        ...providerSession
+        ...providerSession,
+        ...(liveRow.programStatus ? { programStatus: liveRow.programStatus } : {})
       },
       ownerAgent,
       ownerOptions
@@ -135,6 +146,7 @@ export function buildRuntimeMobileAgentStatus(
   // client's row) and drop the question fields (#12346). Only a later shell title retires it.
   const shellTitleRetiredRestored =
     hookRow.restored !== null &&
+    !manualTitleOverridesAgentOsc &&
     terminalTitleBlocksExplicitAgentStatus(ptyTitle) &&
     (pty?.lastOscTitleEpochMs ?? host.getPtyTitleObservedAtEpochMs?.(leaf?.ptyId ?? null) ?? 0) >=
       hookRow.restored.updatedAt

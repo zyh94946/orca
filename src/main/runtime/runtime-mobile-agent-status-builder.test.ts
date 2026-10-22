@@ -38,6 +38,50 @@ describe('mobile agent status builder', () => {
       })
     )
   })
+
+  it('carries the program-status facet from a retained hook row', () => {
+    const programStatus = { state: 'blocked' as const, kind: 'auth' as const, observedAt: 10 }
+    const retained: RuntimeAgentRowSnapshot = {
+      paneKey: 'tab:leaf',
+      connectionId: null,
+      payload: { state: 'working', prompt: 'ship it', agentType: 'codex' },
+      stateStartedAt: 10,
+      updatedAt: 10,
+      programStatus
+    }
+
+    const result = buildRuntimeMobileAgentStatus(null, TAB, 'term-1', retained, () => [], {
+      getPaneKey: () => 'tab:leaf',
+      getLeaf: () => null,
+      getTrackedTitle: () => null
+    })
+
+    expect(result.agentStatus?.programStatus).toEqual(programStatus)
+  })
+
+  it('carries the program-status facet from a live hook row with no renderer', () => {
+    const programStatus = { state: 'working' as const, progress: 42, observedAt: 10 }
+    const liveRow: AgentStatusIpcPayload = {
+      paneKey: 'tab:leaf',
+      state: 'working',
+      prompt: 'ship it',
+      agentType: 'codex',
+      connectionId: null,
+      receivedAt: Date.now(),
+      stateStartedAt: Date.now(),
+      tabId: 'tab',
+      worktreeId: 'wt-1',
+      programStatus
+    }
+
+    const result = buildRuntimeMobileAgentStatus(null, TAB, 'term-1', null, () => [liveRow], {
+      getPaneKey: () => 'tab:leaf',
+      getLeaf: () => null,
+      getTrackedTitle: () => null
+    })
+
+    expect(result.agentStatus?.programStatus).toEqual(programStatus)
+  })
 })
 
 // A synced leaf projects with no PTY record of its own, so a shell title it painted after a
@@ -133,6 +177,20 @@ describe('restored turns on a synced leaf', () => {
   it('stays unverifiable under a newer title that is not a shell', () => {
     const receivedAt = Date.now() - 60_000
     const result = project(leafWithTitle('vim'), receivedAt + 1_000, receivedAt)
+
+    expect(result.agentStatus).toEqual(
+      expect.objectContaining({ state: 'working', restoredUnconfirmed: true })
+    )
+  })
+
+  it('keeps a restored turn when a manual shell-like label overrides an agent OSC title', () => {
+    const receivedAt = Date.now() - 60_000
+    const leaf = {
+      ...leafWithTitle('✳ Claude'),
+      paneTitle: 'bash',
+      paneTitleUpdatedAt: 2
+    }
+    const result = project(leaf, receivedAt + 1_000, receivedAt)
 
     expect(result.agentStatus).toEqual(
       expect.objectContaining({ state: 'working', restoredUnconfirmed: true })

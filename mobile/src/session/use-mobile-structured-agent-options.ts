@@ -18,6 +18,7 @@ import {
 } from '../../../src/shared/structured-agent-session-options'
 import {
   structuredAgentSessionOptionView,
+  structuredAgentSessionSendSelection,
   structuredAgentSessionShownSnapshot
 } from '../../../src/shared/structured-agent-session-option-view'
 import {
@@ -39,6 +40,8 @@ import {
 } from './mobile-created-structured-sessions'
 import { encodeStructuredAgentSessionOptionValue } from '../../../src/shared/structured-agent-session-option-codec'
 import { useMobileStructuredOptionSurface } from './use-mobile-structured-option-surface'
+
+const NO_COMMANDS: readonly AgentSessionConversationCommand[] = []
 
 export function useMobileStructuredAgentOptions(args: {
   agent: string | null
@@ -149,7 +152,9 @@ export function useMobileStructuredAgentOptions(args: {
           setConversationSupport({ sessionId, commands: result.conversationCommands ?? [] })
           updateOptionState((current) =>
             current.record === activeOptionRecordRef.current
-              ? applyStructuredAgentSessionOptions(current, optionCatalog, result)
+              ? applyStructuredAgentSessionOptions(current, optionCatalog, result, {
+                  newLaunch: createdHere !== undefined
+                })
               : current
           )
         }
@@ -160,6 +165,7 @@ export function useMobileStructuredAgentOptions(args: {
     }
   }, [
     client,
+    createdHere,
     enabled,
     optionCatalog,
     optionStamp,
@@ -267,7 +273,9 @@ export function useMobileStructuredAgentOptions(args: {
               if (isCurrent()) {
                 updateOptionState((latest) =>
                   latest.record === targetRecord
-                    ? applyStructuredAgentSessionOptions(latest, optionCatalog, refreshed)
+                    ? applyStructuredAgentSessionOptions(latest, optionCatalog, refreshed, {
+                        newLaunch: createdHere !== undefined
+                      })
                     : latest
                 )
               }
@@ -284,9 +292,14 @@ export function useMobileStructuredAgentOptions(args: {
         }
       }
     },
-    [agent, client, mutate, optionCatalog, sessionId, updateOptionState]
+    [agent, client, createdHere, mutate, optionCatalog, sessionId, updateOptionState]
   )
 
+  // Read, not rendered: what the chat holds when the send goes out.
+  const sendSelection = useCallback(
+    () => structuredAgentSessionSendSelection(optionStateRef.current),
+    []
+  )
   const { optionPickerRequest, invokeStructuredOption, optionSurface } =
     useMobileStructuredOptionSurface({
       optionSnapshot,
@@ -297,7 +310,7 @@ export function useMobileStructuredAgentOptions(args: {
   return {
     optionPickerRequest,
     conversationCommands:
-      conversationSupport?.sessionId === sessionId ? conversationSupport.commands : [],
+      conversationSupport?.sessionId === sessionId ? conversationSupport.commands : NO_COMMANDS,
     /** The chat takes images, as its options report says; else only Claude and Codex, as before. */
     acceptsImages:
       (imageSupport?.sessionId === sessionId ? imageSupport.acceptsImages : undefined) ??
@@ -306,6 +319,7 @@ export function useMobileStructuredAgentOptions(args: {
     optionSurface,
     pendingOptionId: optionState.pendingId,
     setStructuredOption,
-    invokeStructuredOption
+    invokeStructuredOption,
+    sendSelection
   }
 }

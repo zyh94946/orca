@@ -6,7 +6,7 @@ import type { languages } from 'monaco-editor'
 import type { MonacoE2EProbe } from './components/editor/monaco-e2e-probe'
 import type { TerminalWorktreeParkingDebugVerdict } from './components/terminal-pane/terminal-parking-e2e-overrides'
 import type { TerminalPtyPreSpawnE2EBarrier } from './components/terminal-pane/terminal-pty-pre-spawn-e2e-barrier'
-import type { SidebarShadowMismatch } from './lib/sidebar-shadow/sidebar-shadow-comparison'
+import type { LocalLayoutStreamE2EEnd } from './runtime/local-layout-stream-e2e-end'
 
 declare module 'monaco-editor/esm/vs/basic-languages/python/python.js' {
   export const conf: languages.LanguageConfiguration
@@ -138,12 +138,9 @@ declare global {
     __monacoEditorE2E?: MonacoE2EProbe
     __e2ePtyAppliedSizeReadDelayMs?: number
     __terminalPtyPreSpawnE2EBarrier?: TerminalPtyPreSpawnE2EBarrier
-    /** Dev/test only: settled disagreements between the window's sidebar inputs and main's. */
-    __sidebarShadow?: {
-      /** Rounds in which every domain read main's published values; a round with a silent host does not count. */
-      comparisons: () => number
-      mismatches: () => SidebarShadowMismatch[]
-    }
+    __endLocalLayoutStreamE2E?: LocalLayoutStreamE2EEnd
+    /** E2E builds only: whether a paired server's layout frames, not the mirror, draw the workspace. */
+    __isFrameDrawnServerWorkspaceE2E?: (environmentId: string, worktreeId: string) => boolean
   }
 }
 

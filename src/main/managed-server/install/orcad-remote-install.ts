@@ -8,7 +8,7 @@ import {
   execCommand,
   isUnconfirmedSshCommandTermination
 } from '../../ssh/remote-exec/remote-exec-command'
-import { shellEscape } from '../../ssh/ssh-connection-utils'
+import { quotePosixShell } from '../../../shared/shell-argument-quoting'
 import type { OrcadHostTransport } from '../../ssh/orcad-host-transport'
 import { joinRemotePath, type RemoteHostPlatform } from '../../ssh/ssh-remote-platform'
 import { ORCAD_INSTALL_MODEL } from './remote-install-model'
@@ -33,6 +33,8 @@ export async function installOrcadBundle(
     target: NodeRuntimeTarget
     /** The locally verified pinned Node archive, fetched only when the host lacks the runtime. */
     nodeRuntimeArchive: () => Promise<string>
+    /** Where a hand-copied Node archive is used offline; named when no download works. */
+    nodeRuntimeOfflineArchivePath?: string
     /** WSL only: skip re-hashing a runtime whose stat signature is unchanged since it hashed to the pin. */
     recordedNodeRuntimeProbe?: boolean
     signal?: AbortSignal
@@ -47,6 +49,7 @@ export async function installOrcadBundle(
     slotDir: remoteDir,
     target: options.target,
     archivePath: options.nodeRuntimeArchive,
+    offlineArchivePath: options.nodeRuntimeOfflineArchivePath,
     signal: options.signal,
     ...(options.recordedNodeRuntimeProbe
       ? { posixProbeCommand: recordedRemoteNodeRuntimeProbeCommand }
@@ -125,7 +128,7 @@ export async function installOrcadBundle(
   }
 }
 
-function executablePermissionsCommand(
+export function executablePermissionsCommand(
   host: RemoteHostPlatform,
   directory: string,
   target: NodeRuntimeTarget
@@ -135,14 +138,14 @@ function executablePermissionsCommand(
     .map((artifact) => joinRemotePath(host, directory, ...artifact.split('/')))
   const browsers = new Set(
     (['glibc', 'musl'] as const).map((libc) =>
-      shellEscape(
+      quotePosixShell(
         joinRemotePath(host, directory, orcadAgentBrowserNativeName(host.os, host.arch, libc))
       )
     )
   )
   // SFTP drops executable modes; missing optional browser binaries remain a supported install.
   return (
-    `chmod 755 ${required.map(shellEscape).join(' ')} && ` +
+    `chmod 755 ${required.map(quotePosixShell).join(' ')} && ` +
     `for executable in ${[...browsers].join(' ')}; do ` +
     'if [ -f "$executable" ]; then chmod 755 "$executable" || exit $?; fi; done'
   )

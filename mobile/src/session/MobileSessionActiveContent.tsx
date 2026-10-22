@@ -32,6 +32,7 @@ export function MobileSessionActiveContent({
     setCreateError,
     setShowCreateTabDrawer,
     dictationMode,
+    dictationEnabled,
     toastMessage,
     handleTerminalTap,
     browserScreencastSupported,
@@ -69,6 +70,7 @@ export function MobileSessionActiveContent({
     handleKeyboardAvoidanceMetrics,
     handleHaptic,
     nativeChatImages,
+    nativeChatStructuredComposer,
     activeMarkdownTab,
     activeFileTab,
     activeBrowserTab,
@@ -229,7 +231,8 @@ export function MobileSessionActiveContent({
         controller={nativeChatController}
         onOpenFile={handleNativeChatFileTap}
         images={nativeChatImages}
-        onMicPress={handleDictationToggle}
+        structuredComposer={nativeChatStructuredComposer}
+        onMicPress={dictationEnabled ? handleDictationToggle : undefined}
         micActive={dictation.isRecording}
         dictationMode={dictationMode}
         onMicPressIn={handleDictationPressIn}

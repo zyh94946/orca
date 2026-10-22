@@ -63,7 +63,7 @@ vi.mock('../pty/windows-environment-path', () => ({
   mergePersistedWindowsPath: mergePersistedWindowsPathMock
 }))
 
-import { _resetPreflightCache, detectInstalledAgents } from './preflight'
+import { _resetPreflightCache, detectInstalledAgents } from '../preflight/agent-detection'
 import {
   getTuiAgentDetectionProbeCommands,
   KNOWN_TUI_AGENT_DETECTION_COMMANDS

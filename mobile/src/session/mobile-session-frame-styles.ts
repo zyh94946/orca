@@ -32,31 +32,24 @@ export const mobileSessionFrameStyles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs
   },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.xs
-  },
-  backButtonPressed: {
-    backgroundColor: colors.bgRaised
-  },
-  filesButton: {
+  // Each 36pt visual reserves 4pt per side for its 44pt touch area.
+  headerButton: {
     width: 36,
     height: 36,
     borderRadius: radii.button,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: spacing.xs
+    marginHorizontal: spacing.xs
   },
-  filesButtonPressed: {
+  headerButtonPressed: {
     backgroundColor: colors.bgRaised
   },
   // Selected state for the active docked-panel icon on wide layouts (R2).
-  filesButtonActive: {
+  headerButtonActive: {
     backgroundColor: colors.bgRaised
+  },
+  headerButtonDisabled: {
+    opacity: 0.45
   },
   sessionTitleBlock: {
     flex: 1,
@@ -64,8 +57,9 @@ export const mobileSessionFrameStyles = StyleSheet.create({
   },
   // Landscape phone: the tab strip takes the row's spare width instead of the title.
   sessionTitleBlockBesideTabs: {
-    flex: 0,
-    flexShrink: 1,
+    // -1, not 0: web reads flex 0 as a zero basis and collapses the title; -1 is natural width,
+    // shrinking only when the row overflows, on both web and native.
+    flex: -1,
     maxWidth: 160
   },
   sessionTitle: {
@@ -106,7 +100,7 @@ export const mobileSessionFrameStyles = StyleSheet.create({
   },
   tabScroll: {
     flex: 1,
-    maxHeight: 36
+    maxHeight: 44
   },
   tabScrollInTopBar: {
     alignSelf: 'stretch',
@@ -119,10 +113,11 @@ export const mobileSessionFrameStyles = StyleSheet.create({
   tabContentInTopBar: {
     paddingLeft: 0
   },
+  // Sized to the title (capped), so short titles don't waste width.
   tab: {
-    width: 128,
+    minWidth: 44,
     maxWidth: 128,
-    minHeight: 36,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.sm,
@@ -149,6 +144,10 @@ export const mobileSessionFrameStyles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs
   },
+  // The page shrinks a bare svg in a row before the title's ellipsis kicks in.
+  tabIcon: {
+    flexShrink: 0
+  },
   tabText: {
     flexShrink: 1,
     color: colors.textSecondary,
@@ -157,19 +156,8 @@ export const mobileSessionFrameStyles = StyleSheet.create({
   tabTextActive: {
     color: colors.textPrimary
   },
-  newTerminalButton: {
-    width: 40,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent'
-  },
   newTerminalButtonPressed: {
     backgroundColor: colors.bgRaised
-  },
-  newTerminalButtonDisabled: {
-    opacity: 0.45
   },
   // Divider between the + new-terminal button and the Quick Commands launcher,
   // matching the tab strip's borderSubtle separators.

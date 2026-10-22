@@ -236,7 +236,13 @@ export function useAiVaultSessionRefresh(
           refreshIdRef.current === refreshId &&
           scanKey === currentScanScopeKey()
         ) {
-          setFailure({ scopeKey: scanKey, cause: err instanceof Error ? err.message : String(err) })
+          setTerminalScopeKey(scanKey)
+          if (!isAiVaultScanCancellation(err)) {
+            setFailure({
+              scopeKey: scanKey,
+              cause: err instanceof Error ? err.message : String(err)
+            })
+          }
         }
       } finally {
         refreshInFlightRef.current = false

@@ -32,7 +32,12 @@ on:
       - 'config/scripts/windows-process-tree-gyp-rebuild.mjs'
       - 'src/shared/relay-windows-breakaway-launch.ts'
       - 'src/shared/windows-breakaway-launch*.ts'
-      - 'src/main/ipc/ssh-host-server-*.ts'
+      - 'src/main/ipc/ssh/ssh-host-server-*.ts'
+      # The deploy runs over this SSH transport.
+      - 'src/main/ssh/connection/**'
+      - 'src/main/ssh/ssh-reconnect-error-classification.ts'
+      - 'src/main/ssh/ssh-posix-command-wrapper.ts'
+      - 'src/shared/shell-argument-quoting.ts'
       - '!src/**/*.test.ts'
       - 'src/main/ssh/ssh-relay-windows-host-lane.test.ts'
       - 'src/main/ssh/orcad-windows-host-lane.test.ts'

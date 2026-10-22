@@ -27,7 +27,7 @@ import { wakeAlreadyActiveOrcad } from '../ssh/orcad-already-active-wake'
 import { resolveOrcadRemoteContext } from '../managed-server/install/orcad-remote-context'
 import { deployOrcad } from '../ssh/orcad-remote-deploy'
 import { ORCAD_PID_FILENAME } from '../managed-server/install/orcad-remote-host-support'
-import { shellEscape } from '../ssh/ssh-connection-utils'
+import { quotePosixShell } from '../../shared/shell-argument-quoting'
 import { execCommand } from '../ssh/remote-exec/remote-exec-command'
 import { joinRemotePath } from '../ssh/ssh-remote-platform'
 import { readLocalFullVersion } from '../managed-server/install/remote-versioned-install'
@@ -118,7 +118,7 @@ async function launchOverTransport(
   const kernel = await execCommand(conn, 'uname -r', { signal })
   if (isWsl1KernelRelease(kernel)) {
     throw new OrcadHostUnsupportedError(
-      `The WSL 1 distro ${name} is not supported by managed orcad. ` +
+      `The WSL 1 distro ${name} isn’t supported by Orca’s server. ` +
         `Convert it with: wsl --set-version ${name} 2`
     )
   }
@@ -162,8 +162,13 @@ async function launchOverTransport(
     localOrcadDir,
     target: context.serverTarget,
     ...managedOrcadDeployPolicy(context, appVersion, options.force),
-    ...(incumbent ? { census: incumbent.census } : {}),
-    ...(incumbent?.recount ? { recountCensus: incumbent.recount } : {}),
+    ...(incumbent
+      ? {
+          census: incumbent.census,
+          recountCensus: incumbent.recount,
+          releaseIncumbentAdmission: incumbent.releaseAdmission
+        }
+      : {}),
     force: options.force,
     appVersion,
     recordedNodeRuntimeProbe: true
@@ -221,7 +226,7 @@ async function launchOverTransport(
       ORCAD_PID_FILENAME
     )
     const pid = Number.parseInt(
-      await execCommand(conn, `cat ${shellEscape(pidFile)} 2>/dev/null || true`, { signal }),
+      await execCommand(conn, `cat ${quotePosixShell(pidFile)} 2>/dev/null || true`, { signal }),
       10
     )
     return {

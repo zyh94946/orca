@@ -20,9 +20,18 @@ import {
 } from '../managed-server/activation/orcad-activation-record-store'
 import { launchAndJudgeOrcadSlot } from './orcad-candidate-launch-verdict'
 import { planOrcadUpdate } from './orcad-update-plan'
-import type { OrcadTerminalCensus } from '../../shared/orcad-terminal-census'
+import {
+  ORCAD_UPDATE_ADMISSION_STOP_BY_MS,
+  type OrcadTerminalCensus
+} from '../../shared/orcad-terminal-census'
 import { CURRENT_ORCAD_DAEMON_PROTOCOL } from './orcad-daemon-protocol-crossing'
 import { ORCAD_LOG_FILENAME } from '../managed-server/install/orcad-remote-host-support'
+import { orcadSnapshotFailureReason } from '../managed-server/host-state/orcad-state-snapshot-space'
+import {
+  ORCAD_SNAPSHOT_SPACE_INSUFFICIENT_CODE,
+  orcadSnapshotRoomRefusal,
+  orcadSnapshotsRoot
+} from './orcad-snapshot-room'
 import {
   captureOrcadStateSnapshotCommand,
   orcadSnapshotDirName,
@@ -73,6 +82,11 @@ const UNVERIFIABLE_CENSUS: OrcadTerminalCensus = {
   liveSessions: null,
   startedSinceActivation: null,
   daemonProtocolVersion: null
+}
+
+/** Once the recount closed it; a failed reopen only leaves the fence to lapse on its own. */
+async function reopenIncumbentAdmission(options: OrcadDeployOptions): Promise<void> {
+  await options.releaseIncumbentAdmission().catch(() => {})
 }
 
 function countedLockedRecord(options: OrcadDeployOptions, record: OrcadActivationRecord): boolean {
@@ -167,16 +181,26 @@ export async function activateInstalledOrcad(
     }
   }
 
+  // Before the recount: a slow scan must not outdate the census that admits the stop.
+  const roomless = await orcadSnapshotRoomRefusal(options, record, fullVersion)
+  if (roomless) {
+    return notActivated(ORCAD_SNAPSHOT_SPACE_INSUFFICIENT_CODE, roomless)
+  }
+
   // Last check before anything stops: the census above may predate a long upload.
-  if (incumbent && options.recountCensus && countedLockedRecord(options, record)) {
+  const recountedAt = now().getTime()
+  if (incumbent) {
     const recount = planOrcadUpdate({
       record,
       candidateVersion: fullVersion,
-      census: await options.recountCensus(),
+      census: countedLockedRecord(options, record)
+        ? await options.recountCensus().catch(() => UNVERIFIABLE_CENSUS)
+        : UNVERIFIABLE_CENSUS,
       candidateDaemonProtocol: CURRENT_ORCAD_DAEMON_PROTOCOL,
       ...(options.force !== undefined ? { force: options.force } : {})
     })
     if (recount.action === 'defer') {
+      await reopenIncumbentAdmission(options)
       return notActivated(recount.code, recount.reason)
     }
   }
@@ -190,16 +214,37 @@ export async function activateInstalledOrcad(
     snapshotDirName: orcadSnapshotDirName(fullVersion, startedAt.getTime()),
     now: startedAt
   })
-  await writeOrcadActivationTransaction(options, transaction)
+  try {
+    await writeOrcadActivationTransaction(options, transaction)
+  } catch (error) {
+    // Nothing stopped, so the incumbent keeps serving and must take terminals again.
+    if (incumbent) {
+      await reopenIncumbentAdmission(options)
+    }
+    throw error
+  }
+  // The recount's fence lapses on its own; a stop after that could kill a terminal admitted since.
+  if (incumbent && now().getTime() - recountedAt > ORCAD_UPDATE_ADMISSION_STOP_BY_MS) {
+    await reopenIncumbentAdmission(options)
+    return notActivated(
+      'orcad_update_terminal_census_unavailable',
+      'The terminal count went stale before the current server could be stopped, so nothing ' +
+        'was stopped. Orca will try the update again.'
+    )
+  }
   lock.retainOnError()
   // Past the first mutation a cancel would strand a stopped host, so the run finishes or rolls back.
   options = withoutAbortSignal(options)
 
   const unstopped = incumbent ? await stopTransactionIncumbent(options, incumbent, lock) : null
   if (unstopped) {
+    // A stop that may still land keeps admission closed; one never sent leaves the server serving.
+    if (!unstopped.stopMayBeUnderway) {
+      await reopenIncumbentAdmission(options)
+    }
     return notActivated(
       'orcad_outgoing_stop_incomplete',
-      `${unstopped} No snapshot was taken and the candidate was not started. Orca requires ` +
+      `${unstopped.reason} No snapshot was taken and the candidate was not started. Orca requires ` +
         'matching runtime readiness before signaling an incumbent and confirmed exit before ' +
         'snapshotting.'
     )
@@ -209,26 +254,32 @@ export async function activateInstalledOrcad(
 
   // A live SQLite WAL is not a backup boundary, so the snapshot waits for confirmed exit.
   const snapshotDir = orcadSnapshotPath(options, transaction.snapshot.dirName)
-  const capture = parseOrcadSnapshotCapture(
-    await execOrcadStateMutationOr(
-      options,
-      captureOrcadStateSnapshotCommand(
-        options.host,
-        options.userDataDir,
-        snapshotDir,
-        orcadRemoteBaseDir(options.host, options.remoteHome)
-      ),
-      'FAILED'
-    )
+  const captureOutput = await execOrcadStateMutationOr(
+    options,
+    captureOrcadStateSnapshotCommand(
+      options.host,
+      options.userDataDir,
+      snapshotDir,
+      orcadRemoteBaseDir(options.host, options.remoteHome),
+      {
+        snapshotsRoot: orcadSnapshotsRoot(options),
+        keep: [transaction.snapshot.dirName, ...(record.snapshot ? [record.snapshot.dirName] : [])]
+      }
+    ),
+    'FAILED'
   )
+  const capture = parseOrcadSnapshotCapture(captureOutput)
   if (capture === 'failed') {
+    const reason = orcadSnapshotFailureReason(captureOutput)
     const restarted = incumbent
       ? ` The incumbent was stopped before snapshotting; ${await restartAfterSnapshotFailure(options, incumbent, lock)}`
       : ''
     throw new Error(
-      `Could not snapshot ${options.userDataDir} before activating ${fullVersion}. Orca's ` +
-        'persisted state carries no schema version, so without a snapshot a rollback has no ' +
-        `way back. Refusing to activate.${restarted}`
+      `Could not snapshot ${options.userDataDir} before activating ${fullVersion}` +
+        `${reason ? `: ${reason}` : ''}. Orca's persisted state carries no schema version, so ` +
+        'without a snapshot a rollback has no way back. Refusing to activate. Fix what stops ' +
+        `the copy (often a full disk or quota on ${orcadRemoteBaseDir(options.host, options.remoteHome)}), ` +
+        `then reconnect.${restarted}`
     )
   }
   const snapshot: OrcadStateSnapshot | null =

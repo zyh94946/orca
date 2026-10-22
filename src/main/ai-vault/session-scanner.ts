@@ -1,10 +1,9 @@
-import { candidateFileTime } from './antigravity-transcript-candidates'
 import type {
   AiVaultListResult,
   AiVaultScanIssue,
   AiVaultSession
 } from '../../shared/ai-vault-types'
-import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../shared/execution-host'
+import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import { withSpan } from '../observability/tracer'
 import { sessionSortTime } from './session-scanner-accumulator'
 import { ScannedSessionCollection, dedupeScannedSessions } from './session-root-dedup'
@@ -35,7 +34,6 @@ import type {
 } from './session-scanner-types'
 import { clampPositiveInteger, errorMessage } from './session-scanner-values'
 import { throwIfAiVaultScanCancelled } from './ai-vault-scan-cancellation'
-import { noteAiVaultScanFilesRead, noteAiVaultScanReading } from './ai-vault-scan-progress'
 import { DEFAULT_AI_VAULT_SCAN_LIMIT } from '../../shared/ai-vault-session-depth'
 import { withDevinSessionsDbScan } from './session-scanner-devin-db'
 import { isConversationNameRequestSession } from './conversation-name-request-sessions'
@@ -91,7 +89,6 @@ async function scanAiVaultSessionStores(options: AiVaultScanOptions): Promise<Ai
 
         const candidates = await sessionCandidatesFromDiscoveries(discoveries, options)
         const parseCandidates = candidates.slice(0, limit * SESSION_PARSE_CANDIDATE_MULTIPLIER)
-        noteAiVaultScanReading(options.signal, parseCandidates.length)
 
         const parsedSessions = await parseSessionCandidates({
           candidates: parseCandidates,

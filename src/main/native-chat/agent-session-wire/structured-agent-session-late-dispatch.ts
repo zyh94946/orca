@@ -52,5 +52,19 @@ export async function settleStructuredAgentSessionLateDispatch(
             ...(input.answeredInTurn ? { answeredInTurn: input.answeredInTurn } : {}),
             fence
           }
-  )
+  try {
+    // The journal queue drains before close; the host queue would defer this past teardown.
+    await whileStructuredAgentSessionHandingOver(
+      session.journal,
+      input.clientMessageId,
+      async () => {
+        await (settlement.state === 'accepted'
+          ? session.journal.acceptLate(settlement)
+          : session.journal.resolveDispatch(settlement))
+      }
+    )
+  } catch (error) {
+    context.publishWorkChanged(input.sessionId)
+    throw error
+  }
 }

@@ -57,6 +57,8 @@ export type Worktree = {
   lineageDepth?: number
   lineageChildCount?: number
   lineageCollapsed?: boolean
+  /** The collapse key the shared builder gave this row's children; set only on a feed-built list. */
+  lineageGroupKey?: string
   isLastLineageChild?: boolean
   liveTerminalCount: number
   hasAttachedPty: boolean
@@ -82,7 +84,15 @@ export type FilterState = WorkspaceRowFilters
 
 /** A repo as Project sections read it: the desktop's catalog record, or one a row stands in for. */
 // repoIcon stays unread wire data until drawn (readMobileRepoIcon).
-export type SectionRepo = ProjectSectionRepo & { badgeColor?: string; repoIcon?: unknown }
+export type SectionRepo = ProjectSectionRepo & {
+  badgeColor?: string
+  repoIcon?: unknown
+  projectGroupId?: string | null
+  projectGroupOrder?: number
+}
+
+/** A workspace the host is still creating; the feed names only its project, null under its own header. */
+export type SectionPendingCreation = { key: string; repoName: string | null }
 
 export type Section = {
   key: string
@@ -90,5 +100,9 @@ export type Section = {
   icon?: 'pin'
   /** Under Project grouping, the repo whose colour and icon the header shows, as on the desktop. */
   repo?: SectionRepo
+  /** The header's own count from a feed-built list, which a collapsed section still shows. */
+  count?: number
+  /** Drawn under the header, above its rows, as the desktop places them. */
+  pendingCreations?: SectionPendingCreation[]
   data: Worktree[]
 }

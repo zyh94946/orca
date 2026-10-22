@@ -96,6 +96,27 @@ describe('sidebar inputs feed', () => {
     expect(phone.pending?.params).toMatchObject({ cursor: notice.revision })
   })
 
+  it('publishes a change after a quiet spell at once and the rest of its burst together', async () => {
+    const host = makeHost()
+    const phone = new TestPhone(host.feed, 'conn-1')
+    phone.refresh()
+    await phone.settle()
+    await vi.advanceTimersByTimeAsync(100)
+    const before = host.events.length
+    host.rows.set('a', 2)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(host.events).toHaveLength(before + 1)
+    host.rows.set('a', 3)
+    host.rows.set('a', 4)
+    await vi.advanceTimersByTimeAsync(40)
+    expect(host.events).toHaveLength(before + 1)
+    await vi.advanceTimersByTimeAsync(20)
+    expect(host.events).toHaveLength(before + 2)
+    phone.notice(host.lastEvent())
+    await phone.settle()
+    expect(phone.view()).toEqual(host.truth())
+  })
+
   it('coalesces notices into one read in flight and one more after it', async () => {
     const host = makeHost()
     const phone = new TestPhone(host.feed, 'conn-1')
@@ -305,6 +326,41 @@ describe('sidebar inputs feed', () => {
     phone.refresh()
     await phone.settle()
     expect(phone.view().rows).toEqual({ a: 1 })
+  })
+
+  it('re-reads a failed domain on the next read without retrying on its own', async () => {
+    const host = makeHost()
+    const phone = new TestPhone(host.feed, 'conn-1')
+    phone.refresh()
+    await phone.settle()
+    host.rows.fail(true)
+    host.rows.set('a', 2)
+    await flush()
+    const failedReads = host.rows.reads()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(host.rows.reads()).toBe(failedReads)
+
+    host.rows.fail(false)
+    phone.refresh()
+    await phone.settle()
+    expect(host.rows.reads()).toBe(failedReads + 1)
+    expect(phone.view()).toEqual(host.truth())
+  })
+
+  it('re-reads a failed domain with the next flush another domain causes', async () => {
+    const host = makeHost()
+    const phone = new TestPhone(host.feed, 'conn-1')
+    phone.refresh()
+    await phone.settle()
+    host.rows.fail(true)
+    host.rows.set('a', 2)
+    await flush()
+    host.rows.fail(false)
+    host.view.set('sort', 'recent')
+    await flush()
+    phone.notice(host.lastEvent())
+    await phone.settle()
+    expect(phone.view()).toEqual(host.truth())
   })
 
   it('bounds pinned batches, evicting the oldest', async () => {

@@ -1,3 +1,4 @@
+import { createNormalizedAiVaultScopeCwdMatcher } from '../../../../shared/ai-vault-scope-cwd-match'
 import { resolveActiveProjectKey } from './ai-vault-project-key'
 import { toAiVaultProjectKey } from '../../../../shared/ai-vault-project-key'
 import {
@@ -15,6 +16,10 @@ import {
   createNormalizedPathInsideOrEqualMatcher,
   normalizeRuntimePathForComparison
 } from '../../../../shared/cross-platform-path'
+import {
+  aiVaultSessionProjectCwdKey,
+  matchAiVaultProjectCandidates
+} from './ai-vault-session-project-candidates'
 import {
   folderGroupKey,
   folderLabel,
@@ -104,7 +109,8 @@ export function buildAiVaultSessionProjectById({
       projectsByCwd = new Map()
       projectsByHostAndCwd.set(host, projectsByCwd)
     }
-    let project = projectsByCwd.get(session.cwd)
+    const cwdKey = aiVaultSessionProjectCwdKey(session)
+    let project = projectsByCwd.get(cwdKey)
     if (!project) {
       project = resolveSessionProject(session, candidates, projectLabelByKey)
       projectsByCwd.set(session.cwd, project)
@@ -265,8 +271,7 @@ function resolveSessionProject(
     return { kind: 'unknown', key: 'unknown', label: '' }
   }
 
-  const normalizedCwd = normalizeRuntimePathForComparison(cwd)
-  const matches = candidates.filter((candidate) => candidate.ownsNormalizedCwd(normalizedCwd))
+  const matches = matchAiVaultProjectCandidates(session, cwd, candidates, compareCandidates)
   const sessionHostId = normalizeExecutionHostId(session.executionHostId)
   const hostMatches = sessionHostId
     ? matches.filter((candidate) => candidate.hostKey === sessionHostId)
@@ -282,7 +287,7 @@ function resolveSessionProject(
     return folderProject(cwd)
   }
 
-  const bestCandidate = hostMatches.sort(compareCandidates)[0]
+  const bestCandidate = hostMatches[0]
   if (!bestCandidate) {
     return folderProject(cwd)
   }

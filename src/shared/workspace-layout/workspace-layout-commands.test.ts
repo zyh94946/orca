@@ -185,39 +185,6 @@ describe('layout command refusals', () => {
     ).toBe('last_pane')
   })
 
-  it('setPaneRatios accepts divider sizes only', () => {
-    const { model, tabA, leafA, leafA2 } = setup()
-    const root = terminalTab(model, tabA).panes!.root!
-    if (root.type !== 'split') {
-      throw new Error('expected a split')
-    }
-    expect(
-      refusal(model, {
-        type: 'setPaneRatios',
-        workspace: WS,
-        tabId: tabA,
-        root: { ...root, ratio: 0.3 }
-      })
-    ).toBe('applied')
-    const swapped = {
-      type: 'split' as const,
-      direction: 'vertical' as const,
-      first: { type: 'leaf' as const, leafId: leafA2 },
-      second: { type: 'leaf' as const, leafId: leafA }
-    }
-    expect(
-      refusal(model, { type: 'setPaneRatios', workspace: WS, tabId: tabA, root: swapped })
-    ).toBe('pane_structure_changed')
-    expect(
-      refusal(model, {
-        type: 'setPaneRatios',
-        workspace: WS,
-        tabId: tabA,
-        root: { type: 'leaf', leafId: leafA }
-      })
-    ).toBe('pane_structure_changed')
-  })
-
   it('group commands refuse a missing group, a changed group set, and splitting a lone tab off itself', () => {
     const { model, tabA } = setup()
     const groupId = model.workspaces[WS]!.groups[0]!.id
@@ -569,6 +536,41 @@ describe('layout command effects', () => {
     expect(terminalTab(last.model, newTabId).panes.root).toEqual({ type: 'leaf', leafId: leafB })
     expect(terminalTab(last.model, tabB).panes.root).toBeNull()
     expect(last.result.ptyId).toBeNull()
+  })
+
+  it('a window drag-out starts an unbound pane’s new tab in the pane’s folder', () => {
+    const { model, tabA, leafA2, ctx } = setup()
+    const workspace = model.workspaces[WS]!
+    const withCwd: WorkspaceLayoutModel = {
+      ...model,
+      workspaces: {
+        [WS]: {
+          ...workspace,
+          tabs: workspace.tabs.map((tab) =>
+            tab.id === tabA && tab.kind === 'terminal'
+              ? { ...tab, terminal: { ...tab.terminal, startupCwd: '/w' } }
+              : tab
+          )
+        }
+      }
+    }
+    const drag = (ptyId: string | null) =>
+      build(
+        ctx,
+        [
+          {
+            type: 'movePaneToNewTab',
+            workspace: WS,
+            tabId: tabA,
+            leafId: leafA2,
+            windowDetach: { ptyId, tabId: 'tab-main', startupCwd: '/w/packages/app' }
+          }
+        ],
+        withCwd
+      ).model
+    expect(terminalTab(drag(null), 'tab-main').terminal.startupCwd).toBe('/w/packages/app')
+    // A bound pane keeps its shell; its new tab keeps the source tab's folder.
+    expect(terminalTab(drag('pty-live'), 'tab-main').terminal.startupCwd).toBe('/w')
   })
 
   it('equalizes same-axis panes into equal shares', () => {

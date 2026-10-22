@@ -18,7 +18,7 @@ import {
 } from '../pane/launch-authority'
 import type { PtyIpcSpawnState } from './spawn-state'
 import { persistPtyIpcSpawnCommit, publishPtyIpcSpawnCommit } from './spawn-commit-persist'
-import { admitPtyReattachOwnership, registerPersistedPtySpawn } from '../pane/spawn-registration'
+import { admitPtySpawnOwnership, registerPersistedPtySpawn } from '../pane/spawn-registration'
 import { reflowHeadlessTerminalToCommittedGrid } from '../delivery/attached-pty-size'
 import { seedHeadlessTerminalFromSpawnResult } from '../pane/terminal-spawn-restore'
 import { markNativeWindowsConptyPty } from '../../../runtime/terminal-model-query-authority'
@@ -30,7 +30,7 @@ export async function commitPtyIpcSpawn(ctx: PtyIpcSpawnState): Promise<PtySpawn
 
 async function commitReservedPtyIpcSpawn(ctx: PtyIpcSpawnState): Promise<PtySpawnResult> {
   const args = ctx.args
-  admitPtyReattachOwnership(ctx.deps.runtime, ctx.result)
+  admitPtySpawnOwnership(ctx.deps.runtime, ctx.result)
   if (ctx.nativeWindowsConptySpawn) {
     markNativeWindowsConptyPty(ctx.result.id)
   }
@@ -60,6 +60,7 @@ async function commitReservedPtyIpcSpawn(ctx: PtyIpcSpawnState): Promise<PtySpaw
     const rejectedRegistration = registerPersistedPtySpawn(
       ctx.deps.runtime,
       ctx.deps.store,
+      ctx.pendingRegistrationClaim,
       ctx.result.id,
       args.worktreeId,
       null,
@@ -85,7 +86,11 @@ async function commitReservedPtyIpcSpawn(ctx: PtyIpcSpawnState): Promise<PtySpaw
           throw error
         }
       })
-      ctx.deps.runtime?.cancelPendingPtyRegistration?.(ctx.result.id, ctx.result.incarnationId)
+      ctx.deps.runtime?.cancelPendingPtyRegistration?.(
+        ctx.result.id,
+        ctx.result.incarnationId,
+        ctx.pendingRegistrationClaim
+      )
       ctx.pendingRegistrationPtyId = null
       ctx.exitedBeforeRegistration = true
       // The renderer drains this incarnation's buffered output and exit without publishing it live.
@@ -99,7 +104,8 @@ async function commitReservedPtyIpcSpawn(ctx: PtyIpcSpawnState): Promise<PtySpaw
   } else if (ctx.pendingRegistrationPtyId) {
     ctx.deps.runtime?.cancelPendingPtyRegistration?.(
       ctx.pendingRegistrationPtyId,
-      ctx.result.incarnationId
+      ctx.result.incarnationId,
+      ctx.pendingRegistrationClaim
     )
     ctx.pendingRegistrationPtyId = null
   }

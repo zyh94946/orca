@@ -10,7 +10,45 @@ import type {
   SessionFileDiscovery
 } from './session-scanner-types'
 
-/** Newest-first parse candidates for a discovery set, with Codex hardlink aliases collapsed. */
+export function discoveryFileCandidates(
+  discovery: SessionFileDiscovery,
+  files: readonly FileWithMtime[],
+  options: AiVaultScanOptions
+): SessionFileCandidate[] {
+  const codexHome =
+    discovery.agent === 'codex'
+      ? codexHomeForSessionsDir(
+          discovery.rootDir,
+          options.defaultCodexHomeDir ?? DEFAULT_CODEX_HOME_DIR
+        )
+      : null
+  const antigravityHistoryPath =
+    discovery.agent === 'antigravity'
+      ? antigravityHistoryPathForBrainDir(discovery.rootDir)
+      : undefined
+  return files.map((file) => ({
+    agent: discovery.agent,
+    file,
+    codexHome,
+    antigravityHistoryPath
+  }))
+}
+
+const CODEX_ALIAS_ACCESSORS = {
+  isCodex: (candidate: SessionFileCandidate) => candidate.agent === 'codex',
+  getFilePath: (candidate: SessionFileCandidate) => candidate.file.path,
+  getCodexHome: (candidate: SessionFileCandidate) => candidate.codexHome,
+  getHardlinkIdentity: (candidate: SessionFileCandidate) =>
+    codexRolloutHardlinkIdentity(candidate.file)
+}
+
+/** Keeps one rollout per hardlink, in its preferred Codex home; reads no files. */
+export function dropCodexHardlinkAliases(
+  candidates: readonly SessionFileCandidate[]
+): SessionFileCandidate[] {
+  return dedupeCodexRolloutFileAliases(candidates, CODEX_ALIAS_ACCESSORS)
+}
+
 export async function sessionCandidatesFromDiscoveries(
   discoveries: SessionFileDiscovery[],
   options: AiVaultScanOptions

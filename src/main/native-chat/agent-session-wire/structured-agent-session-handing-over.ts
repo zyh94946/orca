@@ -1,21 +1,20 @@
-// The sends the host is handing to its child right now: their `dispatch{pending}` row is written
-// before the adapter is called, so the child holds them before it can report so (`heldSends`).
+// Count pending handovers and late-settlement writes as held until child/journal state catches up.
 
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 
-/** The chat's journal, which identifies the conversation for as long as it is held. */
 type HandoverJournal = Pick<AgentSessionJournal, 'cursor'>
 
-const handingOver = new WeakMap<HandoverJournal, Set<string>>()
-const NONE: ReadonlySet<string> = new Set()
+// Late settlement can overlap its own send’s handover; retain nested counts.
+const handingOver = new WeakMap<HandoverJournal, Map<string, number>>()
+const NONE: ReadonlyMap<string, number> = new Map()
 
-/** The sends this journal's chat is handing over now. */
-export function structuredAgentSessionHandingOver(journal: HandoverJournal): ReadonlySet<string> {
+export function structuredAgentSessionHandingOver(
+  journal: HandoverJournal
+): ReadonlyMap<string, number> {
   return handingOver.get(journal) ?? NONE
 }
 
-/** Runs one handover with its send counted as held, from before its pending row until the adapter
- *  answered; `released` then republishes what is current, which no row may follow. */
+/** Hold from before pending-row write through adapter reply; republish on release even without later rows. */
 export async function whileStructuredAgentSessionHandingOver<T>(
   journal: HandoverJournal,
   clientMessageId: string,
@@ -30,7 +29,7 @@ export async function whileStructuredAgentSessionHandingOver<T>(
   }
 }
 
-/** The same held window across the host's separate pending-row and provider-call steps. */
+/** Span separate pending-row/provider-call steps with the same held window. */
 export function beginStructuredAgentSessionHandover(
   journal: HandoverJournal,
   clientMessageId: string,

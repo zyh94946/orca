@@ -11,10 +11,6 @@ import type { SessionFileCandidate } from './session-scanner-types'
 import type SyncDatabase from '../sqlite/sync-database'
 import { columnExists, tableExists } from '../opencode-usage/schema-helpers'
 
-// Why: the SQLite session-list query + reader lives in its own electron-free
-// module so both the worker entry and the main-thread worker client can import
-// it without pulling in the client's Electron dependency.
-
 type SessionRow = {
   id: string
   time_created: number
@@ -35,10 +31,9 @@ function buildSessionListQuery(db: SyncDatabase, limited: boolean): string {
     ? 'AND time_archived IS NULL'
     : ''
 
-  // Why (#8864): discovery needs only identity and recency. Reading message
-  // blobs or unused session metadata here repeats expensive work on every
-  // refresh; the parse path loads metadata only for candidates it actually uses.
-  return `SELECT id, time_created, time_updated
+  // Discovery needs identity and recency; defer message blobs and unused metadata until parsing.
+  const directory = scoped && columnExists(db, 'session', 'directory') ? ', directory' : ''
+  return `SELECT id, time_created, time_updated${directory}
           FROM session
           WHERE 1=1 ${parentIdPredicate} ${archivedPredicate}
           ORDER BY CASE WHEN time_updated > 0 THEN time_updated ELSE time_created END DESC
@@ -94,17 +89,7 @@ function dedupeAndSortSqliteCandidates(
   })
 }
 
-/**
- * List OpenCode sessions from one or more SQLite databases as synthetic
- * `SessionFileCandidate` entries. Each candidate's file path is a synthetic
- * `<dbPath>#<sessionId>` string that the parser dispatcher routes to
- * `parseOpenCodeSqliteSession`. Databases that lack the `session` table are
- * silently skipped; errors are recorded as scan issues.
- * @param args.dbPaths - Absolute paths to opencode.db files to scan.
- * @param args.limit - Maximum number of sessions to return per database.
- * @param args.issues - Collected scan issues to append errors to.
- * @returns Array of synthetic candidates sorted by effective recency.
- */
+/** List synthetic db#session candidates; skip absent session schemas and report database failures as scan issues. */
 export async function listOpenCodeSqliteSessions(args: {
   dbPaths: readonly string[]
   limit: number
@@ -123,7 +108,6 @@ export async function listOpenCodeSqliteSessions(args: {
         candidates.push(rowToCandidate(row, dbPath, agent))
       }
     } catch (err) {
-      // A whole DB failed, not one transcript: kinded so the panel says so.
       args.issues.push(openCodeDatabaseScanIssue(dbPath, err, agent))
     }
   }

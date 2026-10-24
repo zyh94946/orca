@@ -19,11 +19,6 @@ import { findForeignSqliteReaderEntry } from '../foreign-sqlite-readers/foreign-
 import { runOpenCodeSqliteScanRequest } from './session-scanner-opencode-sqlite-scan-scope'
 import { noteAiVaultScanDatabases, openAiVaultScanSource } from './ai-vault-scan-progress'
 
-// Why: resolve the built worker entry + own the process-wide shared client so
-// the client class stays free of Electron (require'd lazily here) and the
-// scanner call sites depend only on the two routing functions below.
-
-// The shared foreign SQLite reader worker runs OpenCode reads too.
 export function resolveOpenCodeSqliteWorkerEntryPath(
   runtimeDir = __dirname,
   pathExists: (path: string) => boolean = existsSync
@@ -33,8 +28,7 @@ export function resolveOpenCodeSqliteWorkerEntryPath(
 
 function defaultWorkerFactory(): Worker {
   const workerPath = resolveOpenCodeSqliteWorkerEntryPath()
-  // Why: a missing built entry must throw synchronously so the client can fail
-  // closed before it waits on a worker that can never post a result.
+  // Fail synchronously for missing bundles rather than waiting for an impossible worker response.
   if (!existsSync(workerPath)) {
     throw new Error(`OpenCode SQLite worker entry not found: ${workerPath}`)
   }
@@ -50,32 +44,20 @@ function getSharedClient(): OpenCodeSqliteWorkerClient {
   return sharedClient
 }
 
-/**
- * List OpenCode SQLite session candidates through the shared worker client.
- * @param args.dbPaths - Absolute paths to opencode.db files to scan.
- * @param args.limit - Maximum number of sessions to return per database.
- * @param args.issues - Collected scan issues to append errors to.
- * @returns Synthetic candidates sorted by effective recency.
- */
-export function listOpenCodeSqliteSessionsViaWorker(args: {
-  dbPaths: readonly string[]
-  limit: number
-  issues: AiVaultScanIssue[]
-  signal?: AbortSignal
-}): Promise<SessionFileCandidate[]> {
+type SqliteParseArgs = Omit<Parameters<OpenCodeSqliteWorkerClient['parse']>[0], 'agent'>
+type SqliteCaptureArgs = Omit<Parameters<OpenCodeSqliteWorkerClient['capture']>[0], 'agent'>
+
+type SqliteListArgs = Omit<Parameters<OpenCodeSqliteWorkerClient['list']>[0], 'agent'>
+
+export function listOpenCodeSqliteSessionsViaWorker(
+  args: SqliteListArgs
+): Promise<SessionFileCandidate[]> {
   return listForHost(args)
 }
 
-/**
- * List opencode2 session candidates (v2 channel-scoped DB schema) through the
- * shared worker client.
- */
-export function listOpenCode2SqliteSessionsViaWorker(args: {
-  dbPaths: readonly string[]
-  limit: number
-  issues: AiVaultScanIssue[]
-  signal?: AbortSignal
-}): Promise<SessionFileCandidate[]> {
+export function listOpenCode2SqliteSessionsViaWorker(
+  args: SqliteListArgs
+): Promise<SessionFileCandidate[]> {
   return listForHost({ ...args, agent: 'opencode2' })
 }
 
@@ -88,20 +70,9 @@ export function listZcodeSqliteSessionsViaWorker(args: {
   return listForHost({ ...args, agent: 'zcode' })
 }
 
-/**
- * Parse one OpenCode SQLite session through the shared worker client.
- * @param args.dbPath - Absolute path to the opencode.db file.
- * @param args.sessionId - Primary key in the `session` table.
- * @param args.platform - Platform used for resume-command generation.
- * @returns The parsed session, or `null` when it does not exist.
- */
-export function parseOpenCodeSqliteSessionViaWorker(args: {
-  fullFirstUserPrompt?: boolean
-  dbPath: string
-  sessionId: string
-  platform: NodeJS.Platform
-  signal?: AbortSignal
-}): Promise<AiVaultSession | null> {
+export function parseOpenCodeSqliteSessionViaWorker(
+  args: SqliteParseArgs
+): Promise<AiVaultSession | null> {
   return parseForHost(args)
 }
 
@@ -125,20 +96,9 @@ export function parseZcodeSqliteSessionViaWorker(args: {
   return parseForHost({ ...args, agent: 'zcode' })
 }
 
-/**
- * Read one OpenCode SQLite session and its whole transcript through the shared
- * worker client.
- * @param args.dbPath - Absolute path to the opencode.db file.
- * @param args.sessionId - Primary key in the `session` table.
- * @param args.platform - Platform used for resume-command generation.
- * @returns The session and every message it holds.
- */
-export function captureOpenCodeSqliteSessionViaWorker(args: {
-  dbPath: string
-  sessionId: string
-  platform: NodeJS.Platform
-  signal?: AbortSignal
-}): Promise<OpenCodeSqliteCaptureValue> {
+export function captureOpenCodeSqliteSessionViaWorker(
+  args: SqliteCaptureArgs
+): Promise<OpenCodeSqliteCaptureValue> {
   return captureForHost(args)
 }
 

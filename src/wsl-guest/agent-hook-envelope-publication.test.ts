@@ -477,7 +477,7 @@ describe('publishAgentHookEnvelope shed marker', () => {
   })
 
   it('omits the marker when nothing was shed and never stamps the caller envelope', () => {
-    const primary = makeBoundedClient(65536)
+    const primary = makeBoundedClient(16384)
     const dispatcher = new RelayDispatcher(primary.write, primary.options)
     try {
       const envelope = makeEnvelope({ lastAssistantMessage: 128, subagents: 2 })
@@ -486,6 +486,7 @@ describe('publishAgentHookEnvelope shed marker', () => {
 
       const shedding = makeEnvelope({ lastAssistantMessage: 20_000, subagents: 2 })
       publishAgentHookEnvelope(dispatcher, shedding)
+      expect(decodeEnvelopes(primary)[1].shedFields).toEqual(['lastAssistantMessage'])
       // The hook server replays this exact object, so the marker must live on the wire copy only.
       expect((shedding as PublishedEnvelope).shedFields).toBeUndefined()
       expect(shedding.payload.lastAssistantMessage).toBe('a'.repeat(20_000))

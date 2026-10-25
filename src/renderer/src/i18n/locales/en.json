@@ -193,6 +193,28 @@
     },
     "managedProfile": {
       "createFailed": "Couldn't create this workspace's browser profile. Close this tab and open a new one to try again."
+    },
+    "history": {
+      "clear": "Clear browsing history",
+      "clearAllTime": "All time",
+      "clearLastHour": "Last hour",
+      "clearRange": "Clear history from",
+      "clearToday": "Today",
+      "cleared": "Cleared browsing history",
+      "close": "Close",
+      "description": "Search and manage browsing history",
+      "empty": "Pages you visit will show up here",
+      "enterKey": "Enter",
+      "escKey": "Esc",
+      "menuItem": "History",
+      "noMatches": "No pages match your search",
+      "open": "Open",
+      "remove": "Remove from history",
+      "removeShort": "Remove",
+      "search": "Search history",
+      "title": "History",
+      "today": "Today",
+      "yesterday": "Yesterday"
     }
   },
   "editor": {
@@ -3665,11 +3687,7 @@
             "downloadOpenWithDefaultApp": "Download & open with default app",
             "downloadOpenFailed": "Failed to download '{{value0}}'.",
             "openInThisGroup": "Open in this group",
-            "openInThisGroupRefused": "Couldn't open {{value0}} in this group",
-            "fileInOtherWorkspace": "This file is in {{value0}}",
-            "fileInAnotherWorkspace": "This file is in another workspace",
-            "openInOwningWorkspace": "Open there",
-            "openedHereReadOnly": "Opened here as read-only"
+            "openInThisGroupRefused": "Couldn't open {{value0}} in this group"
           },
           "TerminalSessionStateSaveFailureDialog": {
             "6bee0c8f17": "Open Disk Space Analyzer",
@@ -3801,13 +3819,28 @@
             "removeWorkspaceButton": "Remove workspace"
           },
           "TerminalRemoteRuntimeReconnectBanner": {
-            "retryingTitle": "Reconnecting to remote runtime",
             "pairingRefusedTitle": "This host no longer accepts this computer",
             "pairingRefusedBody": "Orca couldn't pair with it again over SSH. Nothing on the host was stopped. Reconnect to try again.",
             "disconnectedTitle": "Remote runtime disconnected",
-            "retryingBody": "Orca is retrying automatically. This terminal will resume if the connection returns.",
             "disconnectedBody": "Automatic retries stopped. Reconnect to resume this terminal session.",
-            "reconnectButton": "Reconnect"
+            "reconnectButton": "Reconnect",
+            "signInTitle": "Waiting for SSH sign-in",
+            "signInBody": "This terminal continues by itself once you sign in to the host.",
+            "signInButton": "Sign in",
+            "serverRestartingTitle": "{{server}} is restarting",
+            "serverRestartingBody": "Orca reconnects when the server is back, and terminals resume then.",
+            "streamStalledTitle": "Terminal stopped responding",
+            "streamStalledBody": "{{server}} stopped sending this terminal's output. Orca is reattaching it automatically.",
+            "sessionEndedTitle": "Reattaching terminal",
+            "sessionEndedBody": "{{server}} closed this terminal's stream. Orca is reattaching it automatically.",
+            "waitingTitle": "Waiting for {{server}}",
+            "waitingBody": "Orca reattaches this terminal when the server offers it again or the connection changes. Reconnect to try now.",
+            "downFor": "Down for {{duration}}",
+            "tailscaleHint": "Check the Tailscale path:",
+            "fallbackServerName": "the server",
+            "connectionLostTitle": "Reconnecting to {{server}}",
+            "connectionLostBody": "The connection to the server dropped. Orca is retrying automatically, and terminals resume when it returns.",
+            "reattachingBody": "Orca is reattaching this terminal to {{server}} automatically."
           },
           "TerminalQuickCommandsSubmenu": {
             "3ccc7981bb": "Host unavailable",
@@ -7269,7 +7302,9 @@
               "description": "Optional override. Orca otherwise uses the key OpenCode saved when you ran /connect, then OPENCODE_API_KEY.",
               "label": "OpenCode Go API key",
               "placeholder": "Leave blank to use the key saved by /connect or OPENCODE_API_KEY",
-              "help": "Used for OpenCode Go usage in the status bar. The session cookie below is only needed for legacy console (OpenCode Black) accounts."
+              "help": "Used for OpenCode Go usage in the status bar. The session cookie below is only needed for legacy console (OpenCode Black) accounts.",
+              "checking": "Checking…",
+              "unavailable": "Status unavailable"
             }
           },
           "remoteScopeLocalAccountsKeptHostPicker": "Accounts managed on this desktop are unchanged. Choose this computer in the Host menu at the top of Settings to view them.",
@@ -8393,6 +8428,11 @@
           "191ac34567": "Agent Orchestration",
           "nestedWorkerDepthTitle": "Nested worker depth",
           "nestedWorkerDepthDescription": "How many generations of dispatched workers may spawn their own workers. 1 keeps the agent tree flat: a coordinator dispatches workers, and those workers do not dispatch.",
+          "chatErrorEscalationTitle": "Tell the coordinator about chat errors",
+          "chatErrorEscalationDescription": "When a dispatched agent hits an error that ends its turn, send the exact error to the coordinator that dispatched it. The task stays assigned to the agent. Only works for agents running in Chat UI.",
+          "chatErrorEscalationNeedsChat": "Turn on Chat UI in Experimental settings to use it.",
+          "chatErrorEscalationKeywordError": "error",
+          "chatErrorEscalationKeywordChat": "chat",
           "7bc082f4de": "Copy install command"
         },
         "OrchestrationSetupCard": {
@@ -9223,6 +9263,8 @@
           "e9609ddca6": "Proxy, jump host, and connection reuse",
           "8c922dffba": "Reuse SSH connection for faster setup",
           "53e9aabfc0": "Uses OpenSSH multiplexing when available. Turn off for hosts with custom SSH restrictions.",
+          "proxyConnectionReuse": "Reuse one proxy connection",
+          "proxyConnectionReuseHelp": "Faster connects through slow ProxyCommand or ProxyJump hosts. Only enable if your ssh_config doesn't rely on host-specific Match or %h rules.",
           "allowRemoteCliControl": "Allow this host's orca CLI to control Orca",
           "allowRemoteCliControlHelp": "On by default for new hosts. Lets orca commands run on this host open and drive Orca browser tabs on this desktop, only in this host's workspaces and only while it is connected, and lets terminals started by an older Orca on this host run orchestration commands (check, inbox, send, ask, reply) for their own supervised work. They cannot read your files, clipboard or cookies. When off, they reach only this host's own Orca server.",
           "editTitle": "Edit SSH host",
@@ -16230,7 +16272,6 @@
           "6c4f1a8d2e": "Check details are unavailable."
         },
         "EditorPanelHeader": {
-          "readOnlyBadge": "Read-only",
           "fb8331694e": "Open Preview to the Side",
           "4157f3cbf3": "Open Markdown Preview",
           "269ce4842b": "Copy Relative Path",
@@ -18760,6 +18801,7 @@
       },
       "webRuntimeSession": {
         "remoteHostDisconnected": "The workspace is not connected to a remote Orca host.",
+        "splitSourceUnpublished": "The pane didn’t split: its terminal hasn’t started on the host yet.",
         "terminalCreateUnconfirmed": "Orca couldn’t confirm that the new terminal opened on the host."
       },
       "gitlabJobTraceClient": {

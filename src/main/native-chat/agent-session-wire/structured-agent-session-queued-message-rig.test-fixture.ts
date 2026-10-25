@@ -50,6 +50,8 @@ export type QueuedMessageTestRig = Awaited<ReturnType<typeof createQueuedMessage
 export async function createQueuedMessageTestRig(
   options: QueuedRigProviderOptions & {
     idleSweep?: { idleMs: number; intervalMs: number }
+    now?: () => number
+    /** Teardown records its restart offers, which `restartOffers` lists. */
     recoveryCapsule?: true
     location?: AgentSessionExecutionLocation
     /** Defaults to indeterminate. */
@@ -70,7 +72,7 @@ export async function createQueuedMessageTestRig(
       journalDatabase: openTestJournalHostDatabase(root),
       claimKeyId: 'key-1',
       mintSpawnToken: () => 'spawn-1',
-      now: () => NOW,
+      now: options.now ?? (() => NOW),
       ...(options.probeOwner ? { probeOwner: options.probeOwner } : {}),
       ...(options.idleSweep ? { idleSweep: options.idleSweep } : {}),
       ...(options.recoveryCapsule ? { recoveryCapsule: new AgentSessionRecoveryCapsule(root) } : {})
@@ -180,8 +182,8 @@ export async function createQueuedMessageTestRig(
   }
 
   /** Wait for startup proof before the first send can hold work. */
-  async function workingSend(): Promise<string> {
-    const { id, result } = send('work on this')
+  async function workingSend(carried?: RigSendOptions['carried']): Promise<string> {
+    const { id, result } = send('work on this', undefined, carried ? { carried } : undefined)
     await result
     await eventually(async () => {
       if (host.collaboratorsForTests().sessions.get(SESSION)?.child?.phase === 'starting') {

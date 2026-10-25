@@ -347,14 +347,16 @@ describe('headless hook agent-status projection (#11761)', () => {
     }
   })
 
-  it('lets a shell title retire a restored turn as done', async () => {
+  // STA-12043: the retired turn keeps its identity but no state, so no Done sits beside the shell.
+  it('lets a shell title retire a restored turn to identity only', async () => {
     const agentStatus = await projectAgentStatus(
       [hookRow({ state: 'working', interactivePrompt: undefined, restoredUnconfirmed: true })],
       (runtime) => observePaneTitle(runtime, 'bash')
     )
 
-    expect(agentStatus === undefined || agentStatus.state === 'done').toBe(true)
-    expect(agentStatus).not.toHaveProperty('restoredUnconfirmed')
+    expect(agentStatus).toEqual(
+      expect.objectContaining({ state: 'done', prompt: '', restoredUnconfirmed: true })
+    )
   })
 
   // #7970: a retained OSC 9999 row is the pane's own report and keeps precedence.
@@ -833,4 +835,85 @@ describe('hook-driven session tabs republish (#11761)', () => {
     expect(events[0]!.tabs[0]!.agentStatus).toBeUndefined()
     unsubscribe()
   })
+})
+
+it.each(['✳ Claude', '✳ Claude next repaint'])(
+  'keeps a working hook when a preexisting idle interval repaints as %s',
+  async (repaintTitle) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(1_700_000_000_000)
+    const wiring = makeAgentStatusStoreWiring()
+    const runtime = await createRuntimeWithHookRows([], wiring)
+    try {
+      observePaneTitle(runtime, '✳ Claude')
+      vi.setSystemTime(Date.now() + 5_000)
+      wiring.statusStore.ingestTerminalStatus({
+        paneKey: PANE_KEY,
+        tabId: TAB_ID,
+        worktreeId: WORKTREE_ID,
+        connectionId: null,
+        payload: { state: 'working', prompt: 'current hook evidence', agentType: 'claude' }
+      })
+      const before = await runtime.listMobileSessionTabs(`id:${WORKTREE_ID}`)
+      expect(before.tabs[0]?.type === 'terminal' && before.tabs[0].agentStatus).toMatchObject({
+        state: 'working',
+        prompt: 'current hook evidence'
+      })
+      vi.setSystemTime(Date.now() + 123)
+      observePaneTitle(runtime, repaintTitle)
+      const after = await runtime.listMobileSessionTabs(`id:${WORKTREE_ID}`)
+      expect(wiring.statusStore.getStatusSnapshot()[0]).toMatchObject({ state: 'working' })
+      expect(after.tabs[0]?.type === 'terminal' && after.tabs[0].agentStatus).toMatchObject({
+        state: 'working',
+        prompt: 'current hook evidence'
+      })
+    } finally {
+      wiring.statusStore.stop()
+      vi.useRealTimers()
+    }
+  }
+)
+
+it('keeps a real idle transition and later done hook authoritative after a working hook', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(1_700_000_000_000)
+  const wiring = makeAgentStatusStoreWiring()
+  const runtime = await createRuntimeWithHookRows([], wiring)
+  try {
+    const ingest = (state: 'working' | 'done'): void => {
+      wiring.statusStore.ingestTerminalStatus({
+        paneKey: PANE_KEY,
+        tabId: TAB_ID,
+        worktreeId: WORKTREE_ID,
+        connectionId: null,
+        payload: {
+          state,
+          prompt: state === 'working' ? 'current hook evidence' : '',
+          agentType: 'claude'
+        }
+      })
+    }
+    observePaneTitle(runtime, '✳ Claude')
+    vi.setSystemTime(Date.now() + 5_000)
+    ingest('working')
+    vi.setSystemTime(Date.now() + 123)
+    observePaneTitle(runtime, '⠋ Claude')
+    vi.setSystemTime(Date.now() + 123)
+    observePaneTitle(runtime, '✳ Claude')
+    const ended = await runtime.listMobileSessionTabs(`id:${WORKTREE_ID}`)
+    expect(ended.tabs[0]?.type === 'terminal' && ended.tabs[0].agentStatus).toMatchObject({
+      state: 'done',
+      prompt: ''
+    })
+    vi.setSystemTime(Date.now() + 123)
+    ingest('done')
+    const confirmed = await runtime.listMobileSessionTabs(`id:${WORKTREE_ID}`)
+    expect(confirmed.tabs[0]?.type === 'terminal' && confirmed.tabs[0].agentStatus).toMatchObject({
+      state: 'done',
+      updatedAt: Date.now()
+    })
+  } finally {
+    wiring.statusStore.stop()
+    vi.useRealTimers()
+  }
 })

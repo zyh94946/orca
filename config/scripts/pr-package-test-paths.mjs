@@ -17,6 +17,14 @@ export const LINUX_PACKAGE_TESTS = [
   'src/main/browser/browser-popup-background-compatibility.electron.test.ts'
 ]
 
+// Why: cloud/ is neither linted nor format-checked, so without this a cloud-only diff skips the
+// static job's check-test-file-runners.mjs; any code file may register tests, so all of them route.
+const CLOUD_TEST_RUNNER_INPUT = /^cloud\/(?:.+\.[cm]?[jt]sx?|(?:.+\/)?package\.json)$/
+
+export function isCloudTestRunnerInput(file) {
+  return CLOUD_TEST_RUNNER_INPUT.test(file)
+}
+
 // The package (windows) job's "Test Windows-specific boundaries" step runs exactly these files.
 export const WINDOWS_BOUNDARY_TESTS = [
   'src/main/zcode/zcode-plan-api-key-store-native-windows.test.ts',
@@ -30,6 +38,7 @@ export const WINDOWS_BOUNDARY_TESTS = [
   'config/scripts/verify-packaged-windows-agent-hook.test.mjs',
   'config/scripts/script-module-dependencies.test.mjs',
   'src/main/windows-registry-addon.test.ts',
+  'src/main/daemon/daemon-host-process-package.test.ts',
   'src/shared/windows-security-addon.win32.test.ts',
   'config/scripts/windows-process-tree-gyp-path.test.mjs',
   'config/scripts/windows-process-tree-gyp-rebuild.test.mjs',

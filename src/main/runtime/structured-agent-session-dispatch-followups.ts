@@ -1,6 +1,4 @@
-// What the runtime does when a provider settles a dispatch after the fact: a late answer to a send,
-// or the provider going idle with sends it never answered. Both run off the request that caused
-// them, so their failure has nobody to return to and is logged instead.
+// Late dispatch settlements run outside their request, so report failures through the logger.
 
 import { DISPATCH_DOUBT_PROVIDER_IDLE } from '../native-chat/agent-session-journal/journal-dispatch-doubt-reasons'
 import type { StructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-host'

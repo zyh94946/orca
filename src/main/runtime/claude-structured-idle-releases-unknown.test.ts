@@ -1,7 +1,4 @@
-// A Claude send whose write ended in doubt is recorded `unknown`, and a live `unknown` reads as
-// work still owed. The CLI reporting `session_state_changed idle` retires the doubt; a send whose
-// dispatch is still `pending` is left alone unless the CLI had started it.
-// Against the production runtime, adapter, record store and host, with only the CLI scripted.
+// Lost writes release Working as unknown; taken-but-unechoed sends release doubt; queued sends stay held.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { computeAgentSessionPayloadFingerprint } from '../../shared/agent-session-mutation-envelope'
@@ -108,7 +105,6 @@ describe('a live Claude chat whose CLI reports idle', () => {
       })
     )
 
-    // Nothing will rewrite the row, so nothing may wait on it.
     await vi.waitFor(() => expect(host.currentWork(SESSION)?.working()).toBe(false))
     const raw = await submission(host, doubted)
     expect(raw?.recovered).toBeUndefined()
@@ -175,7 +171,6 @@ describe('a live Claude chat whose CLI took a send and let it go without an echo
       sentUuid = String(message.uuid)
     }
     const taken = await send(host, 'retrying')
-    // The pending row lands before the adapter's write; the write is what names the uuid.
     await vi.waitFor(() => expect(sentUuid).not.toBe(''))
     expect(await submission(host, taken)).toMatchObject({ dispatchState: 'pending' })
     child.handlers.onMessage?.(lifecycle(sentUuid, 'queued'))
@@ -194,7 +189,7 @@ describe('a live Claude chat whose CLI took a send and let it go without an echo
       })
     )
     expect(host.deps.adapter.holdsDispatch?.(SESSION)).toBe(false)
-    // Released doubt: the chat stops reading working, and nothing re-sends it.
+    expect(host.currentWork(SESSION)?.working()).toBe(false)
     expect(
       hasUnansweredStructuredAgentSessionDispatch((await host.journalSnapshot(SESSION)).submissions)
     ).toBe(false)
@@ -213,7 +208,7 @@ describe('a live Claude chat whose CLI took a send and let it go without an echo
     }
     const queued = await send(host, 'behind a turn')
     await vi.waitFor(() => expect(sentUuid).not.toBe(''))
-    // POSITIVE CONTROL: written but not yet taken, nothing holds the child.
+    // Positive control: a write alone does not prove the CLI took the dispatch.
     expect(host.deps.adapter.holdsDispatch?.(SESSION)).toBe(false)
 
     child.handlers.onMessage?.(lifecycle(sentUuid, 'queued'))

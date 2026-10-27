@@ -218,7 +218,7 @@ describe('keybindings', () => {
       includeMainProcessInterception: true
     })
 
-  it('keeps main-process interception out of the loader and write conflict check', () => {
+  it('omits main-process interception unless requested', () => {
     expect(
       findKeybindingConflicts('darwin', { 'terminal.splitRight': ['Mod+Alt+ArrowRight'] })
     ).toEqual([])
@@ -272,7 +272,7 @@ describe('keybindings', () => {
     ).toEqual([])
   })
 
-  it('leaves the dictation chord to other scopes, since main lets it through while voice is off', () => {
+  it('does not classify dictation as a main-process interception conflict', () => {
     expect(findInterceptionConflicts('darwin', { 'terminal.splitRight': ['Mod+E'] })).toEqual([])
   })
 

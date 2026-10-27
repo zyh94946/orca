@@ -49,36 +49,29 @@ export function dropCodexHardlinkAliases(
   return dedupeCodexRolloutFileAliases(candidates, CODEX_ALIAS_ACCESSORS)
 }
 
+// OMP inherits PI_CODING_AGENT_DIR; the Pi parse labels the OMP transcripts it reads, so read each once.
+function dropOmpCandidatesListedByPi(
+  candidates: readonly SessionFileCandidate[]
+): SessionFileCandidate[] {
+  const piPaths = new Set(
+    candidates.flatMap((candidate) => (candidate.agent === 'pi' ? [candidate.file.path] : []))
+  )
+  return candidates.filter(
+    (candidate) => candidate.agent !== 'omp' || !piPaths.has(candidate.file.path)
+  )
+}
+
 export async function sessionCandidatesFromDiscoveries(
   discoveries: SessionFileDiscovery[],
   options: AiVaultScanOptions
 ): Promise<SessionFileCandidate[]> {
   const candidates = await dedupeCodexRolloutAliases(
-    discoveries
-      .flatMap((discovery) =>
-        discovery.files.map((file): SessionFileCandidate => ({
-          agent: discovery.agent,
-          file,
-          codexHome:
-            discovery.agent === 'codex'
-              ? codexHomeForSessionsDir(
-                  discovery.rootDir,
-                  options.defaultCodexHomeDir ?? DEFAULT_CODEX_HOME_DIR
-                )
-              : null,
-          antigravityHistoryPath:
-            discovery.agent === 'antigravity'
-              ? antigravityHistoryPathForBrainDir(discovery.rootDir)
-              : undefined
-        }))
+    dropOmpCandidatesListedByPi(
+      discoveries.flatMap((discovery) =>
+        discoveryFileCandidates(discovery, discovery.files, options)
       )
-      .sort((left, right) => right.file.mtimeMs - left.file.mtimeMs),
-    {
-      isCodex: (candidate) => candidate.agent === 'codex',
-      getFilePath: (candidate) => candidate.file.path,
-      getCodexHome: (candidate) => candidate.codexHome,
-      getHardlinkIdentity: (candidate) => codexRolloutHardlinkIdentity(candidate.file)
-    },
+    ).sort((left, right) => right.file.mtimeMs - left.file.mtimeMs),
+    CODEX_ALIAS_ACCESSORS,
     (filePath) => readCodexRolloutSessionMetaId(filePath, options.signal, 'scan'),
     options.signal
   )
